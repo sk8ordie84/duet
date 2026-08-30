@@ -13,13 +13,16 @@ import {
   type Guest,
   type Table,
 } from './model'
-import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown } from './webmcp'
+import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown, computeArrangement } from './webmcp'
 import { TEMPLATES, loadTemplate } from './templates'
 import './App.css'
 
 function useApp() {
   return useSyncExternalStore(subscribe, getState)
 }
+
+// tiny toast channel — any component can announce, App renders it
+let announce: (msg: string) => void = () => {}
 
 const DIET_ICON: Record<string, string> = {
   vegetarian: '🥬',
@@ -33,9 +36,19 @@ export default function App() {
   const s = useApp()
   const [mcp] = useState(() => webmcpAvailable())
   const [sideOpen, setSideOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     registerBaseTools()
+    announce = (msg: string) => {
+      setToast(msg)
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+      toastTimer.current = setTimeout(() => setToast(null), 3200)
+    }
+    return () => {
+      announce = () => {}
+    }
   }, [])
 
   useEffect(() => {
@@ -61,6 +74,29 @@ export default function App() {
             {mcp ? '● agent connected via WebMCP' : '○ WebMCP not available'}
           </span>
           <button className="btn" onClick={() => undo()}>↩ Undo</button>
+          {s.guests.length > 0 && s.tables.length > 0 && (
+            <button
+              className="btn primary"
+              onClick={() => {
+                const { seats, moves } = computeArrangement(false)
+                if (moves === 0) {
+                  announce('Already optimal — nothing to move.')
+                  return
+                }
+                update(
+                  (st) => ({
+                    ...st,
+                    proposal: null,
+                    guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
+                  }),
+                  { actor: 'human', describe: `arranged the room (${moves} moves)` }
+                )
+                announce(`Arranged — ${moves} moves. Pinned ${'\u{1F4CC}'} stayed put.`)
+              }}
+            >
+              ✨ Arrange
+            </button>
+          )}
           {s.guests.length > 0 && (
             <>
               <button
@@ -101,6 +137,7 @@ export default function App() {
         </aside>
         <Board />
         <HelpButton mcp={mcp} />
+        {toast && <div className="toast">{toast}</div>}
       </div>
     </div>
   )
@@ -168,6 +205,13 @@ function GuestPool() {
           ? `rule for "${group}": ${next === 'spread' ? 'mix across tables' : 'keep together'}`
           : `removed the rule for "${group}"`,
       }
+    )
+    announce(
+      next === 'spread'
+        ? `"${group}" will be mixed across tables — press ✨ Arrange (or ask your agent) to apply.`
+        : next === 'cluster'
+          ? `"${group}" will be kept together — press ✨ Arrange (or ask your agent) to apply.`
+          : `Rule removed for "${group}".`
     )
   }
 
@@ -344,7 +388,14 @@ function Board() {
           <p className="empty-title">What are we arranging today?</p>
           <div className="template-grid">
             {TEMPLATES.map((t) => (
-              <button key={t.id} className="template-card" onClick={() => loadTemplate(t.id, 'human')}>
+              <button
+                key={t.id}
+                className="template-card"
+                onClick={() => {
+                  loadTemplate(t.id, 'human')
+                  announce('Loaded. Press ✨ Arrange to seat everyone — or ask your agent to propose a plan.')
+                }}
+              >
                 <span className="template-icon">{t.icon}</span>
                 <span className="template-title">{t.title}</span>
                 <span className="template-blurb">{t.blurb}</span>

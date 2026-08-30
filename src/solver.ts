@@ -50,8 +50,10 @@ function score(s: AppState, seats: Map<string, string | null>): number {
         const max = rule.maxPerTable ?? 2
         sc -= n * (n - 1) * 6 // discourage same-group pairs
         if (n > max) sc -= 600 * (n - max) // hard-ish cap
+      } else if (rule?.mode === 'cluster') {
+        sc += n * (n - 1) * 12 // explicit rule: outweighs table-balance pressure
       } else {
-        sc += n * (n - 1) * 4 // pairs of same group like sitting together
+        sc += n * (n - 1) * 4 // mild default: same group likes sitting together
       }
     }
     // accessibility fit

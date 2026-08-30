@@ -299,6 +299,21 @@ body {
 .help-foot a { color: var(--accent); }
 .agent-ink { color: var(--agent); }
 
+/* ---------- toast ---------- */
+.toast {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  z-index: 70; max-width: min(480px, calc(100vw - 40px));
+  background: var(--ink); color: var(--bg);
+  padding: 10px 18px; border-radius: 99px;
+  font-size: 13px; text-align: center;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+  animation: toast-in 0.25s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ---------- responsive ---------- */
 .side-toggle { display: none; }
 @media (max-width: 860px) {

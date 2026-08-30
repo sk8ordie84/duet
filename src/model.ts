@@ -259,6 +259,18 @@ export function conflicts(s: AppState): Conflict[] {
       })
     }
   }
+  for (const rule of s.groupRules) {
+    if (rule.mode !== 'cluster') continue
+    const seatedMembers = s.guests.filter((g) => g.group === rule.group && g.tableId != null)
+    const tablesUsed = [...new Set(seatedMembers.map((g) => g.tableId))]
+    if (tablesUsed.length > 1) {
+      out.push({
+        guestIds: seatedMembers.map((g) => g.id),
+        message: `"${rule.group}" is split across ${tablesUsed.length} tables (rule: keep together)`,
+        severity: 'warn',
+      })
+    }
+  }
   for (const t of s.tables) {
     const seated = guestsAt(s, t.id)
     if (seated.length > t.capacity) {

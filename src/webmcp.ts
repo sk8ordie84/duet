@@ -101,7 +101,7 @@ function agentActsAtCenter(label: string) {
 const DIETS: Diet[] = ['none', 'vegetarian', 'vegan', 'gluten-free', 'halal', 'kosher']
 
 /** Run the solver with human pins always locked. */
-function computeArrangement(respectCurrent: boolean) {
+export function computeArrangement(respectCurrent: boolean) {
   const s = getState()
   const locked = new Set(
     s.guests.filter((g) => g.pinned || (respectCurrent && g.tableId != null)).map((g) => g.id)
