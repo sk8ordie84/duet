@@ -59,6 +59,16 @@ const DIET_ICON: Record<string, string> = {
   kosher: '✡️',
 }
 
+/** Human-readable relationship notes for one guest ("keep apart from X — divorced"). */
+function relationNotes(s: ReturnType<typeof getState>, guestId: string): string[] {
+  return s.constraints
+    .filter((c) => c.a === guestId || c.b === guestId)
+    .map((c) => {
+      const other = s.guests.find((g) => g.id === (c.a === guestId ? c.b : c.a))
+      return `${c.kind === 'apart' ? '⚡ keep apart from' : '❤ sit with'} ${other?.name ?? '?'}${c.note ? ` — ${c.note}` : ''}`
+    })
+}
+
 export default function App() {
   const s = useApp()
   const [mcp] = useState(() => webmcpAvailable())
@@ -163,7 +173,9 @@ export default function App() {
       <div className="main">
         <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
           <GuestPool />
+          <RelationshipsPanel />
           <ActivityFeed />
+          <Legend />
         </aside>
         <Board />
         <HelpButton mcp={mcp} />
@@ -322,18 +334,27 @@ function GuestPool() {
 }
 
 function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string }) {
+  const s = useApp()
+  const relations = relationNotes(s, guest.id)
   return (
     <div
       className={`chip ${guest.accessibility ? 'access' : ''} ${tableLabel ? 'seated-chip' : ''}`}
       style={tableLabel ? undefined : ({ viewTransitionName: `g${guest.id}` } as React.CSSProperties)}
       draggable
       onDragStart={(e) => e.dataTransfer.setData('text/guest-id', guest.id)}
-      title={[guest.group, guest.diet !== 'none' ? guest.diet : null, tableLabel ? `at ${tableLabel}` : 'unseated'].filter(Boolean).join(' · ')}
+      title={[
+        guest.group,
+        guest.diet !== 'none' ? `${DIET_ICON[guest.diet] ?? ''} ${guest.diet}` : null,
+        guest.accessibility ? '♿ needs accessible seating' : null,
+        tableLabel ? `at ${tableLabel}` : 'unseated',
+        ...relations,
+      ].filter(Boolean).join('\n')}
     >
       {guest.name}
       {guest.diet !== 'none' && <span className="diet">{DIET_ICON[guest.diet] ?? ''}</span>}
       {guest.accessibility && <span className="diet">♿</span>}
       {guest.pinned && <span className="diet">📌</span>}
+      {relations.length > 0 && <span className="diet rel">{relations.some((r) => r.startsWith('⚡')) ? '⚡' : '❤'}</span>}
       {tableLabel && <span className="chip-table">{tableLabel}</span>}
     </div>
   )
@@ -452,6 +473,115 @@ function ConflictDock() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ---------------- Relationships ----------------
+
+function RelationshipsPanel() {
+  const s = useApp()
+  const [adding, setAdding] = useState(false)
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const [kind, setKind] = useState<'apart' | 'together'>('apart')
+  const [note, setNote] = useState('')
+  if (s.guests.length === 0) return null
+  const name = (id: string) => s.guests.find((g) => g.id === id)?.name ?? '?'
+  return (
+    <section className="panel">
+      <h2>
+        Relationships <span className="count">{s.constraints.length}</span>
+      </h2>
+      <div className="relations">
+        {s.constraints.map((c) => (
+          <div key={c.id} className={`relation ${c.kind}`}>
+            <span className="rel-icon">{c.kind === 'apart' ? '⚡' : '❤'}</span>
+            <span className="rel-text">
+              <strong>{name(c.a)}</strong> {c.kind === 'apart' ? '×' : '+'} <strong>{name(c.b)}</strong>
+              {c.note && <em> — {c.note}</em>}
+            </span>
+            <button
+              className="rel-del"
+              title="Remove this rule"
+              onClick={() =>
+                update(
+                  (st) => ({ ...st, constraints: st.constraints.filter((x) => x.id !== c.id) }),
+                  { actor: 'human', describe: `removed rule: ${name(c.a)} ${c.kind} ${name(c.b)}` }
+                )
+              }
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        {s.constraints.length === 0 && <div className="empty">No feuds, no couples — yet.</div>}
+      </div>
+      {adding ? (
+        <form
+          className="rel-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!a || !b || a === b) return
+            update(
+              (st) => ({
+                ...st,
+                constraints: [...st.constraints, { id: uid('c'), kind, a, b, note: note.trim() || undefined }],
+              }),
+              { actor: 'human', describe: `rule: ${name(a)} & ${name(b)} ${kind}${note ? ` (${note})` : ''}` }
+            )
+            setA(''); setB(''); setNote(''); setAdding(false)
+          }}
+        >
+          <div className="rel-form-row">
+            <select value={a} onChange={(e) => setA(e.target.value)}>
+              <option value="">Who…</option>
+              {s.guests.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <button
+              type="button"
+              className={`kind-toggle ${kind}`}
+              title="Toggle: keep apart / sit together"
+              onClick={() => setKind(kind === 'apart' ? 'together' : 'apart')}
+            >
+              {kind === 'apart' ? '⚡ apart' : '❤ together'}
+            </button>
+            <select value={b} onChange={(e) => setB(e.target.value)}>
+              <option value="">…and who</option>
+              {s.guests.filter((g) => g.id !== a).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </div>
+          <div className="rel-form-row">
+            <input placeholder="Why? (optional — e.g. divorced in 2019)" value={note} onChange={(e) => setNote(e.target.value)} />
+            <button className="btn primary" type="submit" disabled={!a || !b}>Add</button>
+            <button className="btn" type="button" onClick={() => setAdding(false)}>✕</button>
+          </div>
+        </form>
+      ) : (
+        <button className="link-btn" style={{ paddingBottom: 0 }} onClick={() => setAdding(true)}>
+          + Add a feud or a pair…
+        </button>
+      )}
+    </section>
+  )
+}
+
+// ---------------- Legend ----------------
+
+function Legend() {
+  const s = useApp()
+  if (s.guests.length === 0) return null
+  return (
+    <div className="legend">
+      <span>🥬 vegetarian</span>
+      <span>🌱 vegan</span>
+      <span>🌾 gluten-free</span>
+      <span>🕌 halal</span>
+      <span>✡️ kosher</span>
+      <span>♿ accessible</span>
+      <span>📌 pinned by you</span>
+      <span>⚡ feud</span>
+      <span>❤ sit together</span>
     </div>
   )
 }
@@ -791,7 +921,14 @@ function TableView({
               background: groupColor(seat.guest.group),
               viewTransitionName: `g${seat.guest.id}`,
             } as React.CSSProperties}
-            title={[seat.guest.name, seat.guest.group, seat.guest.diet !== 'none' ? seat.guest.diet : null, seat.guest.accessibility ? 'accessible seating' : null, seat.guest.pinned ? 'pinned — double-click to unpin' : 'double-click to pin'].filter(Boolean).join(' · ')}
+            title={[
+              seat.guest.name,
+              seat.guest.group,
+              seat.guest.diet !== 'none' ? `${DIET_ICON[seat.guest.diet] ?? ''} ${seat.guest.diet}` : null,
+              seat.guest.accessibility ? '♿ needs accessible seating' : null,
+              ...relationNotes(s, seat.guest.id),
+              seat.guest.pinned ? '📌 pinned — double-click to unpin' : 'double-click to pin',
+            ].filter(Boolean).join('\n')}
             draggable
             onDragStart={(e) => {
               e.stopPropagation()

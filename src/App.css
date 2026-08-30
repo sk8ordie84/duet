@@ -216,6 +216,56 @@ body {
   margin-left: 6px; font-family: var(--mono); font-size: 9px; color: var(--muted);
 }
 
+/* ================= relationships ================= */
+
+.relations { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; max-height: 200px; overflow-y: auto; }
+.relation {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; line-height: 1.45; padding: 6px 9px; border-radius: 9px;
+  border-left: 3px solid;
+}
+.relation.apart { background: rgba(226, 99, 75, 0.09); border-left-color: var(--bad); }
+.relation.together { background: rgba(143, 189, 148, 0.08); border-left-color: var(--good); }
+.rel-icon { font-size: 11px; flex-shrink: 0; }
+.rel-text { flex: 1; color: #ddd0b8; }
+.rel-text strong { font-weight: 700; color: var(--text); }
+.rel-text em { color: var(--muted); font-family: var(--serif); }
+.rel-del {
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: var(--muted); font-size: 10px; padding: 2px 4px; border-radius: 5px;
+}
+.rel-del:hover { color: var(--bad); background: rgba(226, 99, 75, 0.15); }
+
+.rel-form { display: flex; flex-direction: column; gap: 7px; }
+.rel-form-row { display: flex; gap: 6px; }
+.rel-form select, .rel-form input {
+  flex: 1; min-width: 0;
+  font-family: var(--sans); font-size: 12px;
+  padding: 6px 8px; border-radius: 9px;
+  border: 1px solid var(--hairline);
+  background: rgba(0, 0, 0, 0.25); color: var(--text);
+}
+.rel-form select:focus, .rel-form input:focus { outline: none; border-color: var(--gold); }
+.kind-toggle {
+  flex-shrink: 0; cursor: pointer;
+  font-family: var(--mono); font-size: 10px;
+  padding: 6px 9px; border-radius: 99px; border: 1px solid var(--hairline);
+  background: transparent; transition: all 0.15s;
+}
+.kind-toggle.apart { color: var(--bad); border-color: rgba(226, 99, 75, 0.5); background: rgba(226, 99, 75, 0.1); }
+.kind-toggle.together { color: var(--good); border-color: rgba(143, 189, 148, 0.5); background: rgba(143, 189, 148, 0.1); }
+.rel-form .btn { padding: 6px 12px; font-size: 11.5px; }
+
+/* ================= legend ================= */
+
+.legend {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  padding: 10px 14px;
+  font-size: 10.5px; color: var(--muted); line-height: 1.6;
+  border-top: 1px solid var(--hairline);
+}
+.legend span { white-space: nowrap; }
+
 /* ================= activity feed ================= */
 
 .feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
