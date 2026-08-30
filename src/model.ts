@@ -343,7 +343,10 @@ export function vocab(s: AppState): Vocab {
 export function applyProposal(actor: 'human' | 'agent') {
   const s = getState()
   if (!s.proposal) return false
-  const moves = s.proposal.moves
+  // pins are law even against an older proposal: skip guests pinned since it was made
+  const pinnedNow = new Set(s.guests.filter((g) => g.pinned).map((g) => g.id))
+  const moves = s.proposal.moves.filter((m) => !pinnedNow.has(m.guestId))
+  const skipped = s.proposal.moves.length - moves.length
   animated(() =>
     update(
       (st) => ({
@@ -354,7 +357,10 @@ export function applyProposal(actor: 'human' | 'agent') {
         }),
         proposal: null,
       }),
-      { actor, describe: `${actor === 'human' ? 'accepted' : 'applied'} the proposal (${moves.length} moves)` }
+      {
+        actor,
+        describe: `${actor === 'human' ? 'accepted' : 'applied'} the proposal (${moves.length} moves${skipped ? `, ${skipped} skipped — pinned 📌` : ''})`,
+      }
     )
   )
   return true

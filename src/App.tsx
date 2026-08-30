@@ -105,8 +105,8 @@ export default function App() {
                 className="btn"
                 onClick={() => {
                   navigator.clipboard.writeText(exportMarkdown(getState())).then(
-                    () => alert('Plan copied as markdown — paste it anywhere.'),
-                    () => alert('Could not access the clipboard.')
+                    () => announce('Plan copied as markdown — paste it into email, Notes, anywhere.'),
+                    () => announce('Could not access the clipboard.')
                   )
                 }}
               >
@@ -526,6 +526,7 @@ function Board() {
           key={t.id}
           table={t}
           index={i}
+          zoom={zoom}
           selected={s.selection?.type === 'table' && s.selection.id === t.id}
           onGrab={(e) => {
             const p = toBoard(e)
@@ -633,14 +634,19 @@ function initials(name: string): string {
 function TableView({
   table,
   index,
+  zoom,
   selected,
   onGrab,
 }: {
   table: Table
   index: number
+  zoom: number
   selected: boolean
   onGrab: (e: React.PointerEvent) => void
 }) {
+  // the conflict note tag is draggable — park it wherever it doesn't bother you
+  const [tagPos, setTagPos] = useState({ x: 62, y: -96 })
+  const tagDrag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null)
   const s = useApp()
   const seated = guestsAt(s, table.id)
   const over = seated.length > table.capacity
@@ -689,7 +695,22 @@ function TableView({
         </span>
       </div>
       {tableConflicts.length > 0 && (
-        <div className="conflict-tag" onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          className="conflict-tag"
+          style={{ left: tagPos.x - 13, top: tagPos.y - 13 }}
+          title="Drag me anywhere"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            tagDrag.current = { px: e.clientX, py: e.clientY, ox: tagPos.x, oy: tagPos.y }
+          }}
+          onPointerMove={(e) => {
+            const d = tagDrag.current
+            if (!d) return
+            setTagPos({ x: d.ox + (e.clientX - d.px) / zoom, y: d.oy + (e.clientY - d.py) / zoom })
+          }}
+          onPointerUp={() => (tagDrag.current = null)}
+        >
           <span className="conflict-count">{tableConflicts.length}</span>
           <div className="conflict-bubbles">
             {tableConflicts.map((c, i) => (
