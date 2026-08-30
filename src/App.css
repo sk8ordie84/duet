@@ -440,6 +440,20 @@ body {
 .bubble.error { border-left-color: var(--bad); }
 .bubble.warn { border-left-color: var(--warn); }
 
+/* conflict birth: the offending table rattles and flares */
+.table.shake .tabletop {
+  animation: table-shake 0.65s var(--ease-out);
+}
+@keyframes table-shake {
+  0% { transform: translate(-50%, -50%) rotate(0); }
+  15% { transform: translate(calc(-50% - 5px), -50%) rotate(-1.6deg); }
+  30% { transform: translate(calc(-50% + 6px), -50%) rotate(1.6deg); }
+  45% { transform: translate(calc(-50% - 5px), -50%) rotate(-1.2deg); }
+  60% { transform: translate(calc(-50% + 4px), -50%) rotate(1deg); }
+  75% { transform: translate(calc(-50% - 2px), -50%) rotate(-0.5deg); }
+  100% { transform: translate(-50%, -50%) rotate(0); }
+}
+
 /* ---- conflict dock (top-left overlay on the board) ---- */
 
 .conflict-dock {
@@ -467,6 +481,11 @@ body {
   font-family: var(--sans); color: var(--text); font-size: 13px;
 }
 .dock-head strong { flex: 1; text-align: left; font-weight: 700; letter-spacing: 0.2px; }
+.dock-count { display: inline-block; animation: dock-pop 0.45s var(--ease-out); }
+@keyframes dock-pop {
+  0% { transform: scale(1.35); color: var(--bad); }
+  100% { transform: scale(1); }
+}
 .dock-flame {
   color: var(--bad); font-size: 14px;
   animation: pulse 1.6s ease-in-out infinite;

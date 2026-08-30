@@ -26,6 +26,31 @@ function useApp() {
 // tiny toast channel — any component can announce, App renders it
 let announce: (msg: string) => void = () => {}
 
+// smooth-scroll helper: scrollTo({behavior:'smooth'}) is unreliable in some
+// embedded browsers, so ease the scroll position by hand
+function panTo(el: HTMLElement, left: number, top: number, ms = 550) {
+  const sl = el.scrollLeft
+  const st = el.scrollTop
+  const t0 = performance.now()
+  let ticked = false
+  const step = (now: number) => {
+    ticked = true
+    const p = Math.min(1, (now - t0) / ms)
+    const e = 1 - Math.pow(1 - p, 3)
+    el.scrollLeft = sl + (left - sl) * e
+    el.scrollTop = st + (top - st) * e
+    if (p < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+  // rAF starves in non-compositing contexts (hidden panes, some embeds) — jump instead
+  setTimeout(() => {
+    if (!ticked) {
+      el.scrollLeft = left
+      el.scrollTop = top
+    }
+  }, 130)
+}
+
 const DIET_ICON: Record<string, string> = {
   vegetarian: '🥬',
   vegan: '🌱',
@@ -78,7 +103,7 @@ export default function App() {
             <button
               className="btn primary"
               onClick={() => {
-                const { seats, moves } = computeArrangement(false)
+                const { seats, moves, remaining } = computeArrangement(false)
                 if (moves === 0) {
                   announce('Already optimal — nothing to move.')
                   return
@@ -93,7 +118,11 @@ export default function App() {
                     { actor: 'human', describe: `arranged the room (${moves} moves)` }
                   )
                 )
-                announce(`Arranged — ${moves} moves. Pinned ${'\u{1F4CC}'} stayed put.`)
+                announce(
+                  remaining.length === 0
+                    ? `Arranged — ${moves} moves, no conflicts. Now drag anyone anywhere: Duet flags trouble the moment it appears.`
+                    : `Arranged — ${moves} moves, ${remaining.length} conflict${remaining.length === 1 ? '' : 's'} left (see the dock).`
+                )
               }}
             >
               ✨ Arrange
@@ -404,7 +433,7 @@ function ConflictDock() {
     <div className="conflict-dock">
       <button className="dock-head" onClick={() => setOpen(!open)}>
         <span className="dock-flame">⚠</span>
-        <strong>{list.length} to resolve</strong>
+        <strong key={list.length} className="dock-count">{list.length} to resolve</strong>
         <span className="dock-caret">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
@@ -453,6 +482,34 @@ function Board() {
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [shakeId, setShakeId] = useState<string | null>(null)
+
+  // When a NEW conflict appears, the room reacts: pan to the offending table,
+  // shake it, and let the dock flare. Silence is for clean rooms only.
+  const prevConflicts = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const list = conflicts(s)
+    const keys = new Set(list.map((c) => c.message))
+    const fresh = list.filter((c) => !prevConflicts.current.has(c.message))
+    prevConflicts.current = keys
+    const hit = fresh.find((c) => c.tableId)
+    if (!hit) return
+    const t = s.tables.find((t) => t.id === hit.tableId)
+    const el = ref.current
+    // pan after the view transition finishes — a running transition cancels smooth scroll
+    const panTimer = setTimeout(() => {
+      if (t && el) {
+        panTo(el, t.x * zoom - el.clientWidth / 2, t.y * zoom - el.clientHeight / 2)
+      }
+      setShakeId(hit.tableId!)
+    }, 640)
+    const timer = setTimeout(() => setShakeId(null), 1900)
+    return () => {
+      clearTimeout(timer)
+      clearTimeout(panTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.guests, s.constraints, s.groupRules])
 
   // board coords from a pointer event, accounting for scroll and zoom
   const toBoard = (e: { clientX: number; clientY: number }) => {
@@ -527,6 +584,7 @@ function Board() {
           table={t}
           index={i}
           zoom={zoom}
+          shaking={shakeId === t.id}
           selected={s.selection?.type === 'table' && s.selection.id === t.id}
           onGrab={(e) => {
             const p = toBoard(e)
@@ -635,12 +693,14 @@ function TableView({
   table,
   index,
   zoom,
+  shaking,
   selected,
   onGrab,
 }: {
   table: Table
   index: number
   zoom: number
+  shaking: boolean
   selected: boolean
   onGrab: (e: React.PointerEvent) => void
 }) {
@@ -667,7 +727,7 @@ function TableView({
 
   return (
     <div
-      className={`table round ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''}`}
+      className={`table round ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''} ${shaking ? 'shake' : ''}`}
       style={{ left: table.x, top: table.y, animationDelay: `${Math.min(index * 45, 700)}ms` }}
       onClick={(e) => {
         e.stopPropagation()
