@@ -202,8 +202,8 @@ export function registerBaseTools() {
       execute: (input: { label: string; capacity: number; shape?: 'round' | 'rect'; accessible?: boolean }) => {
         const s0 = getState()
         const i = s0.tables.length
-        const x = 260 + (i % 3) * 300
-        const y = 160 + Math.floor(i / 3) * 260
+        const x = 280 + (i % 3) * 320
+        const y = 220 + Math.floor(i / 3) * 300
         const id = uid('t')
         update(
           (s) => ({

@@ -46,12 +46,12 @@ export function seedDemo() {
   })
 
   const tables: Table[] = [
-    T('Head Table', 4, 430, 60, true),
-    T('Table 1', 8, 160, 300),
-    T('Table 2', 8, 460, 300, true),
-    T('Table 3', 8, 760, 300),
-    T('Table 4', 6, 300, 560),
-    T('Table 5', 6, 620, 560),
+    T('Head Table', 4, 560, 160, true),
+    T('Table 1', 8, 260, 440),
+    T('Table 2', 8, 580, 440, true),
+    T('Table 3', 8, 900, 440),
+    T('Table 4', 6, 400, 730),
+    T('Table 5', 6, 740, 730),
   ]
 
   const byName = (n: string) => guests.find((g) => g.name === n)!.id

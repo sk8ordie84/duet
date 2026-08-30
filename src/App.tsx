@@ -29,6 +29,7 @@ const DIET_ICON: Record<string, string> = {
 export default function App() {
   const s = useApp()
   const [mcp] = useState(() => webmcpAvailable())
+  const [sideOpen, setSideOpen] = useState(false)
 
   useEffect(() => {
     registerBaseTools()
@@ -44,6 +45,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
+        <button className="btn side-toggle" onClick={() => setSideOpen(!sideOpen)}>☰</button>
         <div className="brand">
           <span className="brand-mark">◐</span> Duet
         </div>
@@ -79,14 +81,49 @@ export default function App() {
       </header>
 
       <div className="main">
-        <aside className="sidebar">
+        <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
           <GuestPool guests={unassigned} allGuests={s.guests} />
           <ConflictPanel conflictsList={cf} />
           <ActivityFeed />
         </aside>
         <Board />
+        <HelpButton mcp={mcp} />
       </div>
     </div>
+  )
+}
+
+function HelpButton({ mcp }: { mcp: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button className="help-fab" onClick={() => setOpen(!open)} title="How to use Duet with your agent">
+        {open ? '✕' : '?'}
+      </button>
+      {open && (
+        <div className="help-panel">
+          <h3>Plan this room with your agent</h3>
+          <p className="help-status">
+            {mcp
+              ? 'Your agent is connected — this page exposes its tools via WebMCP.'
+              : 'No WebMCP agent detected. Open this page in ChatGPT’s in-app browser, or enable chrome://flags/#enable-webmcp-testing.'}
+          </p>
+          <p>You drag guests and make the judgment calls. Your agent does the constraint labor. Try asking it:</p>
+          <ul>
+            <li>“Load the sample event, then seat everyone.”</li>
+            <li>“Add my guests: Ali (groom's family, vegan), Sara (college friends)…”</li>
+            <li>“Uncle Cem and Robert can't stand each other — keep them apart, then fix the room.”</li>
+            <li>“Rearrange, but respect what I placed by hand.”</li>
+            <li><em>Select a table, then:</em> “Who's at this table? Fill it from the college friends.”</li>
+            <li>“Give me a per-table dietary brief for the caterer.”</li>
+          </ul>
+          <p className="help-foot">
+            Every agent action shows up as the <span className="agent-ink">✳ violet cursor</span> and in the activity
+            feed — and you can undo anything. <a href="https://github.com/sk8ordie84/duet" target="_blank" rel="noreferrer">Source ↗</a>
+          </p>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -231,6 +268,29 @@ function Board() {
   )
 }
 
+const GROUP_COLORS = ['#c2703f', '#6d8f5b', '#7a6bb5', '#b05c7d', '#5b8a99', '#a68a3d', '#8a655f', '#5f7d8a']
+
+function groupColor(group?: string): string {
+  if (!group) return '#9b917f'
+  let h = 0
+  for (let i = 0; i < group.length; i++) h = (h * 31 + group.charCodeAt(i)) | 0
+  return GROUP_COLORS[Math.abs(h) % GROUP_COLORS.length]
+}
+
+const HONORIFICS = new Set(['aunt', 'uncle', 'grandma', 'grandpa', 'cousin', 'ex-colleague', 'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.'])
+
+function shortName(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return parts[0]
+  if (HONORIFICS.has(parts[0].toLowerCase())) return name.length <= 14 ? name : parts.slice(1).join(' ')
+  return parts[0]
+}
+
+function initials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean)
+  return (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2)).toUpperCase()
+}
+
 function TableView({
   table,
   selected,
@@ -245,9 +305,21 @@ function TableView({
   const over = seated.length > table.capacity
   const cfHere = conflicts(s).some((c) => c.tableId === table.id && c.severity === 'error')
 
+  const D = 150 // tabletop diameter
+  const R = D / 2 + 27 // seat ring radius
+  const seatCount = Math.max(table.capacity, seated.length)
+  const seats = Array.from({ length: seatCount }, (_, i) => {
+    const angle = (i / seatCount) * Math.PI * 2 - Math.PI / 2
+    return {
+      x: Math.cos(angle) * R,
+      y: Math.sin(angle) * R,
+      guest: seated[i] as Guest | undefined,
+    }
+  })
+
   return (
     <div
-      className={`table ${table.shape} ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''}`}
+      className={`table round ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''}`}
       style={{ left: table.x, top: table.y }}
       onClick={(e) => {
         e.stopPropagation()
@@ -265,17 +337,34 @@ function TableView({
         )
       }}
     >
-      <div className="table-head" onPointerDown={onGrab}>
+      <div className="tabletop" onPointerDown={onGrab}>
         <span className="table-label">{table.label}</span>
         <span className={`cap ${over ? 'over' : ''}`}>
-          {seated.length}/{table.capacity} {table.accessible ? '♿' : ''}
+          {seated.length}/{table.capacity}{table.accessible ? ' ♿' : ''}
         </span>
       </div>
-      <div className="seats">
-        {seated.map((g) => (
-          <GuestChip key={g.id} guest={g} />
-        ))}
-      </div>
+      {seats.map((seat, i) =>
+        seat.guest ? (
+          <div
+            key={seat.guest.id}
+            className="seat filled"
+            style={{ transform: `translate(${seat.x}px, ${seat.y}px)`, background: groupColor(seat.guest.group) }}
+            title={[seat.guest.name, seat.guest.group, seat.guest.diet !== 'none' ? seat.guest.diet : null, seat.guest.accessibility ? 'accessible seating' : null].filter(Boolean).join(' · ')}
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation()
+              e.dataTransfer.setData('text/guest-id', seat.guest!.id)
+            }}
+          >
+            {initials(seat.guest.name)}
+            {seat.guest.diet !== 'none' && <span className="seat-badge">{DIET_ICON[seat.guest.diet] ?? ''}</span>}
+            {seat.guest.accessibility && <span className="seat-badge low">♿</span>}
+            <span className="seat-name">{shortName(seat.guest.name)}</span>
+          </div>
+        ) : (
+          <div key={`e${i}`} className="seat empty" style={{ transform: `translate(${seat.x}px, ${seat.y}px)` }} />
+        )
+      )}
     </div>
   )
 }
