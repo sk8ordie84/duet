@@ -1,0 +1,249 @@
+// Core data model for Duet — a seating planner humans and agents build together.
+
+export type Diet = 'none' | 'vegetarian' | 'vegan' | 'gluten-free' | 'halal' | 'kosher'
+
+export interface Guest {
+  id: string
+  name: string
+  group?: string // e.g. "bride's family", "college friends"
+  diet: Diet
+  accessibility?: boolean // needs accessible seating
+  tableId: string | null // null = unassigned pool
+}
+
+export type ConstraintKind = 'together' | 'apart'
+
+export interface Constraint {
+  id: string
+  kind: ConstraintKind
+  a: string // guest id
+  b: string // guest id
+  note?: string
+}
+
+export type TableShape = 'round' | 'rect'
+
+export interface Table {
+  id: string
+  label: string
+  shape: TableShape
+  capacity: number
+  x: number // board coordinates
+  y: number
+  accessible?: boolean
+}
+
+export interface Conflict {
+  constraintId?: string
+  tableId?: string
+  guestIds: string[]
+  message: string
+  severity: 'error' | 'warn'
+}
+
+export interface EventInfo {
+  name: string
+  date?: string
+}
+
+export interface Actor {
+  kind: 'human' | 'agent'
+}
+
+export interface LogEntry {
+  id: string
+  actor: 'human' | 'agent'
+  text: string
+  at: number
+}
+
+export interface AppState {
+  event: EventInfo
+  guests: Guest[]
+  tables: Table[]
+  constraints: Constraint[]
+  selection: { type: 'table'; id: string } | { type: 'guest'; id: string } | null
+  log: LogEntry[]
+  // transient agent presence: where the agent "cursor" is acting
+  agentFocus: { x: number; y: number; label: string; ts: number } | null
+}
+
+let nextId = 1
+export const uid = (p: string) => `${p}${nextId++}`
+
+// ---------- store ----------
+
+type Listener = () => void
+
+const listeners = new Set<Listener>()
+
+const BLANK: AppState = {
+  event: { name: 'Deniz & Mia — Wedding Reception' },
+  guests: [],
+  tables: [],
+  constraints: [],
+  selection: null,
+  log: [],
+  agentFocus: null,
+}
+
+const STORAGE_KEY = 'duet-plan-v1'
+
+function load(): AppState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return BLANK
+    const saved = JSON.parse(raw)
+    // rebase the id counter above any persisted ids
+    const ids = [...(saved.guests ?? []), ...(saved.tables ?? []), ...(saved.constraints ?? [])]
+      .map((x: { id: string }) => parseInt(x.id.replace(/^\D+/, ''), 10))
+      .filter((n: number) => !isNaN(n))
+    if (ids.length) nextId = Math.max(...ids) + 1
+    return { ...BLANK, ...saved, selection: null, agentFocus: null, log: saved.log ?? [] }
+  } catch {
+    return BLANK
+  }
+}
+
+function persist(s: AppState) {
+  try {
+    const { selection, agentFocus, ...rest } = s
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
+  } catch {
+    // storage unavailable (private mode etc.) — app still works in-memory
+  }
+}
+
+let state: AppState = load()
+
+const undoStack: AppState[] = []
+const MAX_UNDO = 100
+
+export function getState(): AppState {
+  return state
+}
+
+export function subscribe(fn: Listener): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+function emit() {
+  for (const fn of listeners) fn()
+}
+
+/** Mutate state. Pass actor + description to record in the activity log and undo stack. */
+export function update(
+  mutator: (s: AppState) => AppState,
+  opts?: { actor?: 'human' | 'agent'; describe?: string; undoable?: boolean }
+) {
+  if (opts?.undoable !== false) {
+    undoStack.push(state)
+    if (undoStack.length > MAX_UNDO) undoStack.shift()
+  }
+  state = mutator(state)
+  if (opts?.describe) {
+    state = {
+      ...state,
+      log: [
+        { id: uid('log'), actor: opts.actor ?? 'human', text: opts.describe, at: Date.now() },
+        ...state.log,
+      ].slice(0, 200),
+    }
+  }
+  persist(state)
+  emit()
+}
+
+export function undo(): boolean {
+  const prev = undoStack.pop()
+  if (!prev) return false
+  state = { ...prev, log: state.log, agentFocus: null }
+  persist(state)
+  emit()
+  return true
+}
+
+export function setAgentFocus(focus: AppState['agentFocus']) {
+  state = { ...state, agentFocus: focus }
+  emit()
+}
+
+// ---------- derived helpers ----------
+
+export function guestsAt(s: AppState, tableId: string): Guest[] {
+  return s.guests.filter((g) => g.tableId === tableId)
+}
+
+export function findGuestByName(s: AppState, name: string): Guest | undefined {
+  const n = name.trim().toLowerCase()
+  return (
+    s.guests.find((g) => g.name.toLowerCase() === n) ??
+    s.guests.find((g) => g.name.toLowerCase().includes(n))
+  )
+}
+
+export function findTable(s: AppState, ref: string): Table | undefined {
+  const n = ref.trim().toLowerCase()
+  return (
+    s.tables.find((t) => t.id === ref) ??
+    s.tables.find((t) => t.label.toLowerCase() === n) ??
+    s.tables.find((t) => t.label.toLowerCase().includes(n))
+  )
+}
+
+export function conflicts(s: AppState): Conflict[] {
+  const out: Conflict[] = []
+  const tableOf = new Map(s.guests.map((g) => [g.id, g.tableId]))
+  for (const c of s.constraints) {
+    const ta = tableOf.get(c.a)
+    const tb = tableOf.get(c.b)
+    if (ta == null || tb == null) continue
+    const ga = s.guests.find((g) => g.id === c.a)!
+    const gb = s.guests.find((g) => g.id === c.b)!
+    if (c.kind === 'apart' && ta === tb) {
+      out.push({
+        constraintId: c.id,
+        tableId: ta,
+        guestIds: [c.a, c.b],
+        message: `${ga.name} and ${gb.name} must be kept apart but share a table`,
+        severity: 'error',
+      })
+    }
+    if (c.kind === 'together' && ta !== tb) {
+      out.push({
+        constraintId: c.id,
+        guestIds: [c.a, c.b],
+        message: `${ga.name} and ${gb.name} should sit together but are at different tables`,
+        severity: 'warn',
+      })
+    }
+  }
+  for (const t of s.tables) {
+    const seated = guestsAt(s, t.id)
+    if (seated.length > t.capacity) {
+      out.push({
+        tableId: t.id,
+        guestIds: seated.map((g) => g.id),
+        message: `${t.label} is over capacity (${seated.length}/${t.capacity})`,
+        severity: 'error',
+      })
+    }
+    const needsAccess = seated.filter((g) => g.accessibility)
+    if (needsAccess.length > 0 && !t.accessible) {
+      out.push({
+        tableId: t.id,
+        guestIds: needsAccess.map((g) => g.id),
+        message: `${needsAccess.map((g) => g.name).join(', ')} ${needsAccess.length === 1 ? 'needs' : 'need'} accessible seating but ${t.label} is not marked accessible`,
+        severity: 'warn',
+      })
+    }
+  }
+  return out
+}
+
+export function dietSummary(s: AppState): Record<string, number> {
+  const sum: Record<string, number> = {}
+  for (const g of s.guests) sum[g.diet] = (sum[g.diet] ?? 0) + 1
+  return sum
+}
