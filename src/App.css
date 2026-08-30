@@ -649,7 +649,8 @@ body {
   }
   .sidebar.open { transform: translateX(0); }
   .proposal-moves { column-count: 1; }
-  .conflict-dock { top: 60px; }
+  /* keep clear of the proposal banner (top) and zoom controls (bottom-left) */
+  .conflict-dock { top: auto; bottom: 64px; left: 60px; width: min(300px, calc(100% - 80px)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

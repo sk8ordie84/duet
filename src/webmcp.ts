@@ -60,6 +60,9 @@ function shim(): ModelContext {
   return ctx
 }
 
+// The underlying API is document.modelContext.registerTool({ name, description,
+// inputSchema, execute }) — mc() resolves it, falling back to navigator.modelContext
+// (earlier drafts of the spec) or, in browsers without WebMCP, to the console shim above.
 function mc(): ModelContext | null {
   const d = document as any
   const n = navigator as any

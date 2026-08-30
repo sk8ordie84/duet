@@ -38,14 +38,39 @@ accessibility needs) humans are hopeless at solving in their head. WebMCP splits
 work along the right line: taste and authority stay with the human; import, constraint
 tracking, solving, and reporting go to the agent.
 
-## Try it
+## How tools are registered
 
-- **ChatGPT's in-app browser** supports WebMCP out of the box — just open the deployed URL.
-- **Chrome**: enable `chrome://flags/#enable-webmcp-testing`, relaunch, open the URL.
-- **No WebMCP?** The app installs a console shim with the same registry:
-  `__webmcp.list()` and `__webmcp.call('auto_arrange', {})`.
+All 20 tools go through the standard WebMCP API ([src/webmcp.ts](src/webmcp.ts)):
 
-Things to ask your agent:
+```js
+document.modelContext.registerTool({
+  name: 'seat_guest',
+  description: 'Seat a guest at a table (or move them there)…',
+  inputSchema: { type: 'object', properties: { guest: { type: 'string' }, table: { type: 'string' } }, required: ['guest', 'table'] },
+  execute: async (input) => { /* mutate the board, return structured JSON */ },
+})
+```
+
+Selection-scoped tools additionally pass `{ signal }` from an `AbortController` and are
+revoked the moment the human deselects the table.
+
+## Try it (for judges too)
+
+1. Open **https://duet-ten.vercel.app** in ChatGPT's in-app browser (WebMCP works out of
+   the box) or in Chrome with `chrome://flags/#enable-webmcp-testing` enabled.
+2. Pick a template (tables load empty — everyone starts in the pool).
+3. Ask the agent: *"Get the seating plan, then propose an arrangement."* Review the
+   violet banner, press **Accept**, and watch the seats morph into place.
+4. Drag someone yourself — they get pinned 📌; ask the agent to rearrange and it must
+   work around your call. Drag two feuding guests together to see conflict notes
+   (the red tag on a table is draggable; hover it for the notes).
+5. Select a table and ask *"who's at this table?"* — the agent's tool list follows
+   your selection.
+
+No WebMCP browser at hand? The app installs a console shim with the same registry:
+`__webmcp.list()` and `__webmcp.call('auto_arrange', {})`.
+
+More things to ask your agent:
 
 > "Load the gala template and propose a seating plan."
 > "Add my guests: Ali (groom's family, vegan), Sara (college friends)…"

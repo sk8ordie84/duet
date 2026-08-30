@@ -69,6 +69,27 @@ five scenarios: wedding, gala, corporate networking dinner, office seating, clas
 
 ---
 
+## Testing instructions (for the submission form)
+
+1. Open https://duet-ten.vercel.app in ChatGPT's in-app browser, or in Google Chrome
+   149+ with `chrome://flags/#enable-webmcp-testing` enabled (relaunch after enabling).
+   No login or credentials needed.
+2. Pick any template — tables load empty; everyone starts in the pool.
+3. Ask the agent: "Get the seating plan, then propose an arrangement." A violet
+   proposal banner appears; click Review to see the move list, then Accept.
+4. Drag a guest onto a table by hand — they get pinned 📌. Ask the agent to
+   rearrange: it must (and will) work around your pin.
+5. Drag two feuding guests to the same table — a red tag appears on it (draggable;
+   hover it for the handwritten conflict notes), and the top-left dock lists all issues.
+6. Click a table to select it, then ask "who is at this table?" — the agent's
+   available tools change with your selection (selection-scoped WebMCP tools).
+7. Ask "give me the caterer's brief" or press ⇪ Export for the markdown plan.
+
+No WebMCP browser available: open the DevTools console — the same tool registry is
+exposed as `__webmcp.list()` / `__webmcp.call('auto_arrange', {})`.
+
+---
+
 ## 3-minute video outline (not part of the form)
 
 1. (0:00) Cold open: gala board, 120 unseated. "This is a two-brain problem."

@@ -327,55 +327,12 @@ export const TEMPLATES: Template[] = [
   },
 ]
 
-/**
- * Naively seat everyone in list order — the "someone filled the spreadsheet
- * top-to-bottom" starting point. Guarantees the room loads with visible,
- * honest conflicts for the human and agent to untangle.
- */
-function naiveSeat(seed: Seed) {
-  const capLeft = new Map(seed.tables.map((t) => [t.id, t.capacity]))
-  for (const g of seed.guests) {
-    if (g.tableId != null) {
-      capLeft.set(g.tableId, (capLeft.get(g.tableId) ?? 0) - 1)
-    }
-  }
-  let ti = 0
-  for (const g of seed.guests) {
-    if (g.tableId != null) continue // pre-pinned (e.g. hosts) stay
-    while (ti < seed.tables.length && (capLeft.get(seed.tables[ti].id) ?? 0) <= 0) ti++
-    if (ti >= seed.tables.length) break
-    const t = seed.tables[ti]
-    g.tableId = t.id
-    capLeft.set(t.id, (capLeft.get(t.id) ?? 0) - 1)
-  }
-  // make sure at least one "apart" feud is visibly violated
-  const tableOf = new Map(seed.guests.map((g) => [g.id, g.tableId]))
-  const violated = seed.constraints.some(
-    (c) => c.kind === 'apart' && tableOf.get(c.a) != null && tableOf.get(c.a) === tableOf.get(c.b)
-  )
-  if (!violated) {
-    const c = seed.constraints.find((c) => c.kind === 'apart')
-    if (c) {
-      const a = seed.guests.find((g) => g.id === c.a)
-      const b = seed.guests.find((g) => g.id === c.b)
-      if (a && b && a.tableId && !a.pinned && !b.pinned) {
-        // swap b with someone at a's table
-        const other = seed.guests.find((g) => g.tableId === a.tableId && g.id !== a.id && !g.pinned)
-        if (other) {
-          const bTable = b.tableId
-          b.tableId = a.tableId
-          other.tableId = bTable
-        }
-      }
-    }
-  }
-}
-
 export function loadTemplate(id: string, actor: 'human' | 'agent' = 'human'): string | null {
   const t = TEMPLATES.find((t) => t.id === id)
   if (!t) return null
+  // Templates load with empty tables: everyone starts in the pool (only
+  // scenario-pinned guests, like corporate hosts, are pre-seated).
   const seed = t.build()
-  naiveSeat(seed)
   update(
     (s) => ({
       ...s,
