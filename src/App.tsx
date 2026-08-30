@@ -7,6 +7,7 @@ import {
   guestsAt,
   conflicts,
   vocab,
+  animated,
   applyProposal,
   dismissProposal,
   uid,
@@ -84,13 +85,15 @@ export default function App() {
                   announce('Already optimal — nothing to move.')
                   return
                 }
-                update(
-                  (st) => ({
-                    ...st,
-                    proposal: null,
-                    guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
-                  }),
-                  { actor: 'human', describe: `arranged the room (${moves} moves)` }
+                animated(() =>
+                  update(
+                    (st) => ({
+                      ...st,
+                      proposal: null,
+                      guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
+                    }),
+                    { actor: 'human', describe: `arranged the room (${moves} moves)` }
+                  )
                 )
                 announce(`Arranged — ${moves} moves. Pinned ${'\u{1F4CC}'} stayed put.`)
               }}
@@ -296,6 +299,7 @@ function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string })
   return (
     <div
       className={`chip ${guest.accessibility ? 'access' : ''} ${tableLabel ? 'seated-chip' : ''}`}
+      style={tableLabel ? undefined : ({ viewTransitionName: `g${guest.id}` } as React.CSSProperties)}
       draggable
       onDragStart={(e) => e.dataTransfer.setData('text/guest-id', guest.id)}
       title={[guest.group, guest.diet !== 'none' ? guest.diet : null, tableLabel ? `at ${tableLabel}` : 'unseated'].filter(Boolean).join(' · ')}
@@ -494,10 +498,11 @@ function Board() {
         className="board-inner"
         style={{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: extent.w, height: extent.h }}
       >
-      {s.tables.map((t) => (
+      {s.tables.map((t, i) => (
         <TableView
           key={t.id}
           table={t}
+          index={i}
           selected={s.selection?.type === 'table' && s.selection.id === t.id}
           onGrab={(e) => {
             const p = toBoard(e)
@@ -603,17 +608,20 @@ function initials(name: string): string {
 
 function TableView({
   table,
+  index,
   selected,
   onGrab,
 }: {
   table: Table
+  index: number
   selected: boolean
   onGrab: (e: React.PointerEvent) => void
 }) {
   const s = useApp()
   const seated = guestsAt(s, table.id)
   const over = seated.length > table.capacity
-  const cfHere = conflicts(s).some((c) => c.tableId === table.id && c.severity === 'error')
+  const tableConflicts = conflicts(s).filter((c) => c.tableId === table.id)
+  const cfHere = tableConflicts.some((c) => c.severity === 'error')
 
   const D = 150 // tabletop diameter
   const R = D / 2 + 27 // seat ring radius
@@ -630,7 +638,7 @@ function TableView({
   return (
     <div
       className={`table round ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''}`}
-      style={{ left: table.x, top: table.y }}
+      style={{ left: table.x, top: table.y, animationDelay: `${Math.min(index * 45, 700)}ms` }}
       onClick={(e) => {
         e.stopPropagation()
         update((st) => ({ ...st, selection: { type: 'table', id: table.id } }), { undoable: false })
@@ -656,12 +664,28 @@ function TableView({
           {seated.length}/{table.capacity}{table.accessible ? ' ♿' : ''}
         </span>
       </div>
+      {tableConflicts.length > 0 && (
+        <div className="conflict-tag" onPointerDown={(e) => e.stopPropagation()}>
+          <span className="conflict-count">{tableConflicts.length}</span>
+          <div className="conflict-bubbles">
+            {tableConflicts.map((c, i) => (
+              <div key={i} className={`bubble ${c.severity}`}>
+                {c.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {seats.map((seat, i) =>
         seat.guest ? (
           <div
             key={seat.guest.id}
             className={`seat filled ${seat.guest.pinned ? 'pinned' : ''}`}
-            style={{ transform: `translate(${seat.x}px, ${seat.y}px)`, background: groupColor(seat.guest.group) }}
+            style={{
+              transform: `translate(${seat.x}px, ${seat.y}px)`,
+              background: groupColor(seat.guest.group),
+              viewTransitionName: `g${seat.guest.id}`,
+            } as React.CSSProperties}
             title={[seat.guest.name, seat.guest.group, seat.guest.diet !== 'none' ? seat.guest.diet : null, seat.guest.accessibility ? 'accessible seating' : null, seat.guest.pinned ? 'pinned — double-click to unpin' : 'double-click to pin'].filter(Boolean).join(' · ')}
             draggable
             onDragStart={(e) => {

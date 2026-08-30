@@ -5,6 +5,7 @@
 import {
   getState,
   update,
+  animated,
   undo,
   setAgentFocus,
   findGuestByName,
@@ -210,7 +211,7 @@ export function registerBaseTools() {
         'Get the full current state of the seating plan: event info, tables with who is seated, unassigned guests, all guests with dietary/accessibility needs, constraints, and current conflicts. Call this first to understand the plan.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true },
-      execute: () => j(planSummary(getState())),
+      execute: async () => j(planSummary(getState())),
     },
     {
       name: 'add_guests',
@@ -235,7 +236,7 @@ export function registerBaseTools() {
         },
         required: ['guests'],
       },
-      execute: (input: { guests: { name: string; group?: string; diet?: string; accessibility?: boolean }[] }) => {
+      execute: async (input: { guests: { name: string; group?: string; diet?: string; accessibility?: boolean }[] }) => {
         const added: string[] = []
         update(
           (s) => {
@@ -273,7 +274,7 @@ export function registerBaseTools() {
         },
         required: ['label', 'capacity'],
       },
-      execute: (input: { label: string; capacity: number; shape?: 'round' | 'rect'; accessible?: boolean }) => {
+      execute: async (input: { label: string; capacity: number; shape?: 'round' | 'rect'; accessible?: boolean }) => {
         const s0 = getState()
         const i = s0.tables.length
         const x = 280 + (i % 3) * 320
@@ -310,16 +311,18 @@ export function registerBaseTools() {
         properties: { guest: { type: 'string' }, table: { type: 'string' } },
         required: ['guest', 'table'],
       },
-      execute: (input: { guest: string; table: string }) => {
+      execute: async (input: { guest: string; table: string }) => {
         const s = getState()
         const g = findGuestByName(s, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
         if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌). Ask them, or use set_pin to unpin first.` })
         const t = findTable(s, input.table)
         if (!t) return j({ error: `No table matching "${input.table}"` })
+        await animated(() =>
         update(
           (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, tableId: t.id } : x)) }),
           { actor: 'agent', describe: `seated ${g.name} at ${t.label}` }
+        )
         )
         agentActsAt(t.x, t.y, `${g.name} → ${t.label}`)
         const cf = conflicts(getState()).filter((c) => c.guestIds.includes(g.id))
@@ -330,14 +333,16 @@ export function registerBaseTools() {
       name: 'unseat_guest',
       description: 'Remove a guest from their table back to the unassigned pool.',
       inputSchema: { type: 'object', properties: { guest: { type: 'string' } }, required: ['guest'] },
-      execute: (input: { guest: string }) => {
+      execute: async (input: { guest: string }) => {
         const s = getState()
         const g = findGuestByName(s, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
         if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌). Ask them, or use set_pin to unpin first.` })
+        await animated(() =>
         update(
           (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, tableId: null } : x)) }),
           { actor: 'agent', describe: `unseated ${g.name}` }
+        )
         )
         agentActsAtTable(null, `${g.name} → pool`)
         return j({ ok: true })
@@ -357,7 +362,7 @@ export function registerBaseTools() {
         },
         required: ['kind', 'guest_a', 'guest_b'],
       },
-      execute: (input: { kind: 'together' | 'apart'; guest_a: string; guest_b: string; note?: string }) => {
+      execute: async (input: { kind: 'together' | 'apart'; guest_a: string; guest_b: string; note?: string }) => {
         const s = getState()
         const a = findGuestByName(s, input.guest_a)
         const b = findGuestByName(s, input.guest_b)
@@ -386,7 +391,7 @@ export function registerBaseTools() {
         },
         required: ['group', 'mode'],
       },
-      execute: (input: { group: string; mode: 'spread' | 'cluster' | 'none'; max_per_table?: number }) => {
+      execute: async (input: { group: string; mode: 'spread' | 'cluster' | 'none'; max_per_table?: number }) => {
         const s = getState()
         const match = [...new Set(s.guests.map((g) => g.group).filter(Boolean))].find(
           (g) => g!.toLowerCase() === input.group.toLowerCase() || g!.toLowerCase().includes(input.group.toLowerCase())
@@ -428,7 +433,7 @@ export function registerBaseTools() {
           note: { type: 'string', description: 'One sentence shown to the human: why this arrangement.' },
         },
       },
-      execute: (input: { respect_current?: boolean; note?: string }) => {
+      execute: async (input: { respect_current?: boolean; note?: string }) => {
         const s = getState()
         if (s.tables.length === 0) return j({ error: 'No tables yet — add tables first.' })
         const { moves, movesList, remaining } = computeArrangement(!!input.respect_current)
@@ -463,10 +468,11 @@ export function registerBaseTools() {
           },
         },
       },
-      execute: (input: { respect_current?: boolean }) => {
+      execute: async (input: { respect_current?: boolean }) => {
         const s = getState()
         if (s.tables.length === 0) return j({ error: 'No tables yet — add tables first.' })
         const { seats, moves, remaining } = computeArrangement(!!input.respect_current)
+        await animated(() =>
         update(
           (st) => ({
             ...st,
@@ -474,6 +480,7 @@ export function registerBaseTools() {
             guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
           }),
           { actor: 'agent', describe: `auto-arranged the room (${moves} moves)` }
+        )
         )
         agentActsAtCenter(`auto-arrange · ${moves} moves`)
         return j({ ok: true, moves, remaining_conflicts: remaining, plan: planSummary(getState()).tables })
@@ -488,7 +495,7 @@ export function registerBaseTools() {
         properties: { action: { type: 'string', enum: ['apply', 'withdraw'] } },
         required: ['action'],
       },
-      execute: (input: { action: 'apply' | 'withdraw' }) => {
+      execute: async (input: { action: 'apply' | 'withdraw' }) => {
         const ok = input.action === 'apply' ? applyProposal('agent') : dismissProposal('agent')
         if (ok) agentActsAtCenter(input.action === 'apply' ? 'proposal applied' : 'proposal withdrawn')
         return j(ok ? { ok: true } : { error: 'No pending proposal.' })
@@ -503,7 +510,7 @@ export function registerBaseTools() {
         properties: { guest: { type: 'string' }, pinned: { type: 'boolean' } },
         required: ['guest', 'pinned'],
       },
-      execute: (input: { guest: string; pinned: boolean }) => {
+      execute: async (input: { guest: string; pinned: boolean }) => {
         const s = getState()
         const g = findGuestByName(s, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
@@ -523,7 +530,7 @@ export function registerBaseTools() {
         properties: { template: { type: 'string', enum: TEMPLATES.map((t) => t.id) } },
         required: ['template'],
       },
-      execute: (input: { template: string }) => {
+      execute: async (input: { template: string }) => {
         const name = loadTemplate(input.template, 'agent')
         if (!name) return j({ error: `Unknown template "${input.template}"` })
         agentActsAtCenter('loaded template')
@@ -536,21 +543,21 @@ export function registerBaseTools() {
         'Export the finished plan as clean markdown: per-table seating list plus a dietary/accessibility brief. Use when the human wants to share the plan, email the caterer, or print place cards.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true },
-      execute: () => exportMarkdown(getState()),
+      execute: async () => exportMarkdown(getState()),
     },
     {
       name: 'get_conflicts',
       description: 'List all current conflicts: violated apart/together constraints, over-capacity tables, and accessibility mismatches.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true },
-      execute: () => j(conflicts(getState()).map((c) => ({ severity: c.severity, message: c.message }))),
+      execute: async () => j(conflicts(getState()).map((c) => ({ severity: c.severity, message: c.message }))),
     },
     {
       name: 'dietary_report',
       description: 'Summarize dietary needs across all guests, and per table — useful for the caterer.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true },
-      execute: () => {
+      execute: async () => {
         const s = getState()
         return j({
           totals: dietSummary(s),
@@ -568,7 +575,7 @@ export function registerBaseTools() {
       name: 'undo_last_change',
       description: 'Undo the most recent change to the plan (works for both human and agent actions).',
       inputSchema: { type: 'object', properties: {} },
-      execute: () => j({ ok: undo() }),
+      execute: async () => j({ ok: undo() }),
     },
   ]
 
@@ -604,7 +611,7 @@ export function syncSelectionTools() {
       description: `The human has currently selected table "${table.label}". Get who sits here, capacity, and conflicts involving this table.`,
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true },
-      execute: () => {
+      execute: async () => {
         const st = getState()
         const t = st.tables.find((t) => t.id === sel)!
         return j({
@@ -622,14 +629,16 @@ export function syncSelectionTools() {
       name: 'seat_at_selected_table',
       description: `Seat a guest (by name) at the table the human is currently looking at ("${table.label}").`,
       inputSchema: { type: 'object', properties: { guest: { type: 'string' } }, required: ['guest'] },
-      execute: (input: { guest: string }) => {
+      execute: async (input: { guest: string }) => {
         const st = getState()
         const g = findGuestByName(st, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
         if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌).` })
+        await animated(() =>
         update(
           (x) => ({ ...x, guests: x.guests.map((gg) => (gg.id === g.id ? { ...gg, tableId: sel } : gg)) }),
           { actor: 'agent', describe: `seated ${g.name} at ${table.label} (selected)` }
+        )
         )
         agentActsAt(table.x, table.y, `${g.name} → here`)
         return j({ ok: true })
@@ -639,11 +648,13 @@ export function syncSelectionTools() {
       name: 'clear_selected_table',
       description: `Move everyone at the selected table ("${table.label}") back to the unassigned pool.`,
       inputSchema: { type: 'object', properties: {} },
-      execute: () => {
+      execute: async () => {
         const kept = getState().guests.filter((g) => g.tableId === sel && g.pinned)
+        await animated(() =>
         update(
           (x) => ({ ...x, guests: x.guests.map((g) => (g.tableId === sel && !g.pinned ? { ...g, tableId: null } : g)) }),
           { actor: 'agent', describe: `cleared ${table.label}` }
+        )
         )
         agentActsAt(table.x, table.y, 'cleared')
         return j({ ok: true, kept_pinned: kept.map((g) => g.name) })
@@ -660,7 +671,7 @@ export function syncSelectionTools() {
           accessible: { type: 'boolean' },
         },
       },
-      execute: (input: { capacity?: number; label?: string; accessible?: boolean }) => {
+      execute: async (input: { capacity?: number; label?: string; accessible?: boolean }) => {
         update(
           (x) => ({
             ...x,

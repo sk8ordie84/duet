@@ -72,11 +72,13 @@ export function solve(
   opts?: { locked?: Set<string>; iterations?: number }
 ): { seats: Map<string, string | null>; moves: number; score: number } {
   const locked = opts?.locked ?? new Set<string>()
+  // Seed from the current arrangement so improvements are incremental — a solved
+  // room stays mostly put instead of being reshuffled into a different optimum.
   const seats = new Map<string, string | null>()
-  for (const g of s.guests) seats.set(g.id, locked.has(g.id) ? g.tableId : null)
+  for (const g of s.guests) seats.set(g.id, g.tableId)
 
-  // Greedy seeding: place unlocked guests, grouped by `group`, into best table.
-  const unplaced = s.guests.filter((g) => !locked.has(g.id))
+  // Greedy seeding: place currently unseated, unlocked guests into their best table.
+  const unplaced = s.guests.filter((g) => !locked.has(g.id) && g.tableId == null)
   // sort: accessibility first, then bigger groups first
   const groupSize = new Map<string, number>()
   for (const g of s.guests) if (g.group) groupSize.set(g.group, (groupSize.get(g.group) ?? 0) + 1)
@@ -119,7 +121,7 @@ export function solve(
       seats.set(a, tb)
       seats.set(b, ta)
       const ns = score(s, seats)
-      if (ns >= cur) cur = ns
+      if (ns > cur) cur = ns
       else {
         seats.set(a, ta)
         seats.set(b, tb)
@@ -132,7 +134,7 @@ export function solve(
       if (prev === t.id) continue
       seats.set(a, t.id)
       const ns = score(s, seats)
-      if (ns >= cur) cur = ns
+      if (ns > cur) cur = ns
       else seats.set(a, prev)
     }
   }

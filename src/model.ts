@@ -1,5 +1,32 @@
 // Core data model for Duet — a seating planner humans and agents build together.
 
+import { flushSync } from 'react-dom'
+
+/**
+ * Run a state change inside a View Transition so seat moves morph across the
+ * board instead of teleporting. Falls back to a plain call where unsupported.
+ */
+export function animated(fn: () => void): Promise<void> {
+  const d = document as unknown as {
+    startViewTransition?: (cb: () => void) => {
+      finished?: Promise<void>
+      ready?: Promise<void>
+      updateCallbackDone?: Promise<void>
+    }
+  }
+  if (d.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    // The callback runs async (after the old-state snapshot). Callers that read
+    // state afterwards MUST await the returned promise. Rapid successive
+    // transitions abort their predecessors — fine, just don't let it throw.
+    const t = d.startViewTransition(() => flushSync(fn))
+    t.finished?.catch(() => {})
+    t.ready?.catch(() => {})
+    return (t.updateCallbackDone ?? Promise.resolve()).catch(() => {})
+  }
+  fn()
+  return Promise.resolve()
+}
+
 export type Diet = 'none' | 'vegetarian' | 'vegan' | 'gluten-free' | 'halal' | 'kosher'
 
 export interface Guest {
@@ -135,7 +162,7 @@ function load(): AppState {
     if (!raw) return BLANK
     const saved = JSON.parse(raw)
     // rebase the id counter above any persisted ids
-    const ids = [...(saved.guests ?? []), ...(saved.tables ?? []), ...(saved.constraints ?? [])]
+    const ids = [...(saved.guests ?? []), ...(saved.tables ?? []), ...(saved.constraints ?? []), ...(saved.log ?? [])]
       .map((x: { id: string }) => parseInt(x.id.replace(/^\D+/, ''), 10))
       .filter((n: number) => !isNaN(n))
     if (ids.length) nextId = Math.max(...ids) + 1
@@ -246,15 +273,16 @@ export function conflicts(s: AppState): Conflict[] {
         constraintId: c.id,
         tableId: ta,
         guestIds: [c.a, c.b],
-        message: `${ga.name} and ${gb.name} must be kept apart but share a table`,
+        message: `${ga.name} × ${gb.name} must be kept apart${c.note ? ` — ${c.note}` : ''}`,
         severity: 'error',
       })
     }
     if (c.kind === 'together' && ta !== tb) {
       out.push({
         constraintId: c.id,
+        tableId: ta,
         guestIds: [c.a, c.b],
-        message: `${ga.name} and ${gb.name} should sit together but are at different tables`,
+        message: `${ga.name} should sit with ${gb.name}${c.note ? ` — ${c.note}` : ''}`,
         severity: 'warn',
       })
     }
@@ -316,16 +344,18 @@ export function applyProposal(actor: 'human' | 'agent') {
   const s = getState()
   if (!s.proposal) return false
   const moves = s.proposal.moves
-  update(
-    (st) => ({
-      ...st,
-      guests: st.guests.map((g) => {
-        const m = moves.find((m) => m.guestId === g.id)
-        return m ? { ...g, tableId: m.to } : g
+  animated(() =>
+    update(
+      (st) => ({
+        ...st,
+        guests: st.guests.map((g) => {
+          const m = moves.find((m) => m.guestId === g.id)
+          return m ? { ...g, tableId: m.to } : g
+        }),
+        proposal: null,
       }),
-      proposal: null,
-    }),
-    { actor, describe: `${actor === 'human' ? 'accepted' : 'applied'} the proposal (${moves.length} moves)` }
+      { actor, describe: `${actor === 'human' ? 'accepted' : 'applied'} the proposal (${moves.length} moves)` }
+    )
   )
   return true
 }
