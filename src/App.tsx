@@ -12,6 +12,7 @@ import {
   uid,
   type Guest,
   type Table,
+  type Diet,
 } from './model'
 import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown, computeArrangement } from './webmcp'
 import { TEMPLATES, loadTemplate } from './templates'
@@ -185,6 +186,7 @@ function GuestPool() {
   const [name, setName] = useState('')
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [importing, setImporting] = useState(false)
 
   const unseated = s.guests.filter((g) => g.tableId == null).length
   const q = query.trim().toLowerCase()
@@ -238,6 +240,8 @@ function GuestPool() {
       >
         <input placeholder={`Add ${v.person.toLowerCase()}…`} value={name} onChange={(e) => setName(e.target.value)} />
       </form>
+      <button className="link-btn" onClick={() => setImporting(true)}>⤓ Paste a whole list…</button>
+      {importing && <ImportModal onClose={() => setImporting(false)} />}
       {s.guests.length > 8 && (
         <input
           className="pool-search"
@@ -305,6 +309,86 @@ function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string })
   )
 }
 
+// ---------------- Paste import ----------------
+
+const DIET_WORDS: Record<string, Diet> = {
+  vegetarian: 'vegetarian', veg: 'vegetarian', vejetaryen: 'vegetarian',
+  vegan: 'vegan',
+  'gluten-free': 'gluten-free', gluten: 'gluten-free', gf: 'gluten-free', glutensiz: 'gluten-free',
+  halal: 'halal', helal: 'halal',
+  kosher: 'kosher', koşer: 'kosher',
+}
+const ACCESS_WORDS = new Set(['wheelchair', 'accessible', 'access', '♿', 'tekerlekli', 'erişilebilir'])
+
+function parseGuestLines(text: string): Omit<Guest, 'id' | 'tableId'>[] {
+  const out: Omit<Guest, 'id' | 'tableId'>[] = []
+  for (const raw of text.split('\n')) {
+    let line = raw.trim()
+    if (!line) continue
+    // "Name (group)" → "Name, group"
+    line = line.replace(/\(([^)]+)\)/, ', $1')
+    const parts = line.split(/[\t,;|]+|\s+-\s+/).map((p) => p.trim()).filter(Boolean)
+    if (!parts.length) continue
+    const name = parts[0]
+    let diet: Diet = 'none'
+    let accessibility = false
+    let group: string | undefined
+    for (const p of parts.slice(1)) {
+      const low = p.toLowerCase()
+      if (DIET_WORDS[low]) diet = DIET_WORDS[low]
+      else if (ACCESS_WORDS.has(low)) accessibility = true
+      else if (!group) group = p
+    }
+    out.push({ name, diet, accessibility, group })
+  }
+  return out
+}
+
+function ImportModal({ onClose }: { onClose: () => void }) {
+  const s = useApp()
+  const v = vocab(s)
+  const [text, setText] = useState('')
+  const parsed = parseGuestLines(text)
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Paste your {v.people.toLowerCase()}</h3>
+        <p className="modal-hint">
+          One per line. Extras after a comma become group / diet / accessibility — e.g.{' '}
+          <code>Ayşe, bride's family, vegetarian</code> · <code>Karl (Umbrella), wheelchair</code>
+        </p>
+        <textarea
+          autoFocus
+          placeholder={'Ayşe, bride’s family, vegetarian\nRobert, groom’s family\nSelin (college friends), vegan'}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="modal-actions">
+          <span className="count">{parsed.length ? `${parsed.length} ${parsed.length === 1 ? v.person.toLowerCase() : v.people.toLowerCase()} detected` : ''}</span>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button
+            className="btn primary"
+            disabled={parsed.length === 0}
+            onClick={() => {
+              update(
+                (st) => ({
+                  ...st,
+                  guests: [...st.guests, ...parsed.map((p) => ({ ...p, id: uid('g'), tableId: null }))],
+                }),
+                { actor: 'human', describe: `imported ${parsed.length} ${v.people.toLowerCase()}` }
+              )
+              announce(`Imported ${parsed.length} — press ✨ Arrange or ask your agent to seat them.`)
+              onClose()
+            }}
+          >
+            Import {parsed.length || ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---------------- Conflicts ----------------
 
 function ConflictPanel({ conflictsList }: { conflictsList: ReturnType<typeof conflicts> }) {
@@ -351,38 +435,78 @@ function Board() {
   const s = useApp()
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
+
+  // board coords from a pointer event, accounting for scroll and zoom
+  const toBoard = (e: { clientX: number; clientY: number }) => {
+    const el = ref.current!
+    const r = el.getBoundingClientRect()
+    return {
+      x: (e.clientX - r.left + el.scrollLeft) / zoom,
+      y: (e.clientY - r.top + el.scrollTop) / zoom,
+    }
+  }
+
+  const extent = s.tables.reduce(
+    (acc, t) => ({ w: Math.max(acc.w, t.x + 260), h: Math.max(acc.h, t.y + 260) }),
+    { w: 1200, h: 900 }
+  )
+
+  const fit = () => {
+    const el = ref.current
+    if (!el || s.tables.length === 0) return
+    const xs = s.tables.map((t) => t.x)
+    const ys = s.tables.map((t) => t.y)
+    const pad = 160
+    const minX = Math.min(...xs) - pad
+    const minY = Math.min(...ys) - pad
+    const w = Math.max(...xs) - minX + pad * 2
+    const h = Math.max(...ys) - minY + pad * 2
+    const z = Math.min(el.clientWidth / w, el.clientHeight / h, 1)
+    setZoom(z)
+    requestAnimationFrame(() => {
+      el.scrollLeft = minX * z
+      el.scrollTop = minY * z
+    })
+  }
 
   return (
+    <div className="board-wrap">
     <div
       className="board"
       ref={ref}
       onPointerMove={(e) => {
         if (!drag.current) return
-        const r = ref.current!.getBoundingClientRect()
         const { id, dx, dy } = drag.current
-        const x = e.clientX - r.left - dx
-        const y = e.clientY - r.top - dy
+        const p = toBoard(e)
         update(
-          (st) => ({ ...st, tables: st.tables.map((t) => (t.id === id ? { ...t, x, y } : t)) }),
+          (st) => ({ ...st, tables: st.tables.map((t) => (t.id === id ? { ...t, x: p.x - dx, y: p.y - dy } : t)) }),
           { undoable: false }
         )
       }}
       onPointerUp={() => (drag.current = null)}
       onClick={(e) => {
-        if (e.target === ref.current) update((st) => ({ ...st, selection: null }), { undoable: false })
+        if (e.target === ref.current || (e.target as HTMLElement).classList?.contains('board-inner'))
+          update((st) => ({ ...st, selection: null }), { undoable: false })
       }}
     >
+      <div
+        className="board-inner"
+        style={{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: extent.w, height: extent.h }}
+      >
       {s.tables.map((t) => (
         <TableView
           key={t.id}
           table={t}
           selected={s.selection?.type === 'table' && s.selection.id === t.id}
           onGrab={(e) => {
-            const r = ref.current!.getBoundingClientRect()
-            drag.current = { id: t.id, dx: e.clientX - r.left - t.x, dy: e.clientY - r.top - t.y }
+            const p = toBoard(e)
+            drag.current = { id: t.id, dx: p.x - t.x, dy: p.y - t.y }
           }}
         />
       ))}
+      <AgentCursor />
+      </div>
       {s.tables.length === 0 && (
         <div className="board-empty">
           <p className="empty-title">What are we arranging today?</p>
@@ -405,8 +529,15 @@ function Board() {
           <p className="hint">…or start from scratch: ask your agent to add tables and import your list.</p>
         </div>
       )}
-      <ProposalBanner />
-      <AgentCursor />
+    </div>
+    {s.tables.length > 0 && (
+      <div className="zoom-controls">
+        <button className="btn" onClick={() => setZoom((z) => Math.min(1.6, +(z + 0.15).toFixed(2)))}>+</button>
+        <button className="btn" onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.15).toFixed(2)))}>−</button>
+        <button className="btn" onClick={fit} title="Fit the whole room in view">⤢</button>
+      </div>
+    )}
+    <ProposalBanner />
     </div>
   )
 }
