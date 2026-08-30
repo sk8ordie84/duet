@@ -177,6 +177,11 @@ function planSummary(s: AppState) {
       table: s.tables.find((t) => t.id === g.tableId)?.label ?? null,
       pinned_by_human: !!g.pinned,
     })),
+    groups: [...new Set(s.guests.map((g) => g.group).filter(Boolean))].map((group) => ({
+      group,
+      members: s.guests.filter((g) => g.group === group).length,
+      rule: s.groupRules.find((r) => r.group === group) ?? null,
+    })),
     constraints: s.constraints.map((c) => ({
       kind: c.kind,
       a: s.guests.find((g) => g.id === c.a)?.name,
@@ -366,6 +371,47 @@ export function registerBaseTools() {
         )
         agentActsAtTable(a.tableId, `${input.kind}: ${a.name}·${b.name}`)
         return j({ ok: true, violated_now: conflicts(getState()).map((c) => c.message) })
+      },
+    },
+    {
+      name: 'set_group_rule',
+      description:
+        'Set a placement policy for a whole group: mode "spread" mixes the group across tables (at most max_per_table together — networking dinners, hosts, chatty kids), mode "cluster" keeps them together (the default tendency), mode "none" removes the rule. The solver and conflict checker enforce this.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group: { type: 'string' },
+          mode: { type: 'string', enum: ['spread', 'cluster', 'none'] },
+          max_per_table: { type: 'number', description: 'Only for spread; default 2.' },
+        },
+        required: ['group', 'mode'],
+      },
+      execute: (input: { group: string; mode: 'spread' | 'cluster' | 'none'; max_per_table?: number }) => {
+        const s = getState()
+        const match = [...new Set(s.guests.map((g) => g.group).filter(Boolean))].find(
+          (g) => g!.toLowerCase() === input.group.toLowerCase() || g!.toLowerCase().includes(input.group.toLowerCase())
+        )
+        if (!match) return j({ error: `No group matching "${input.group}"` })
+        update(
+          (st) => ({
+            ...st,
+            groupRules: [
+              ...st.groupRules.filter((r) => r.group !== match),
+              ...(input.mode === 'none'
+                ? []
+                : [{ group: match, mode: input.mode, maxPerTable: input.max_per_table }]),
+            ],
+          }),
+          {
+            actor: 'agent',
+            describe:
+              input.mode === 'none'
+                ? `removed the rule for "${match}"`
+                : `rule for "${match}": ${input.mode === 'spread' ? `mix across tables (max ${input.max_per_table ?? 2})` : 'keep together'}`,
+          }
+        )
+        agentActsAtCenter(`${match}: ${input.mode}`)
+        return j({ ok: true, group: match, violations_now: conflicts(getState()).map((c) => c.message) })
       },
     },
     {

@@ -2,7 +2,7 @@
 // places, and relationship constraints — so Duet ships with four very different
 // rooms to plan. Each template seeds guests, tables, constraints, and vocabulary.
 
-import { update, uid, type Guest, type Table, type Constraint, type Diet, type Vocab } from './model'
+import { update, uid, type Guest, type Table, type Constraint, type Diet, type Vocab, type GroupRule } from './model'
 
 interface Seed {
   name: string
@@ -10,6 +10,7 @@ interface Seed {
   guests: Guest[]
   tables: Table[]
   constraints: Constraint[]
+  groupRules?: GroupRule[]
 }
 
 export interface Template {
@@ -90,9 +91,13 @@ function wedding(): Seed {
   const constraints = [
     C(guests, 'apart', 'Uncle Cem', 'Robert', 'old business dispute'),
     C(guests, 'apart', 'Ex-colleague Dave', 'Priya', 'awkward history'),
+    C(guests, 'apart', 'Aunt Nuran', 'Uncle Cem', 'divorced in 2019 — do not seat together'),
+    C(guests, 'apart', 'Selin', 'Emily', "haven't spoken since the bachelorette"),
+    C(guests, 'apart', 'Kerem', 'Cousin Bora', 'inheritance feud'),
     C(guests, 'together', 'Grandma Leyla', 'Aunt Feride'),
     C(guests, 'together', 'Deniz', 'Mia'),
     C(guests, 'together', 'Grandpa Joe', 'Susan'),
+    C(guests, 'together', 'Arda', 'Nadia', 'engaged'),
   ]
   return {
     name: 'Deniz & Mia — Wedding Reception',
@@ -202,6 +207,57 @@ function office(): Seed {
   }
 }
 
+// ---------------------------------------------------------------- corporate dinner
+
+function corporate(): Seed {
+  const companies: [string, string[]][] = [
+    ['Vega Capital (hosts)', ['Leyla Vega', 'Mark Osei', 'Tina Larsson', 'Deniz Aksoy', 'Pablo Ruiz', 'Amara Chen']],
+    ['Acme Robotics', ['Jon Hart', 'Mira Solak', 'Peter Vann', 'Lucy Kim', 'Omar Diallo']],
+    ['Globex Energy', ['Rana Aziz', 'Tom Becker', 'Iris Novak', 'Sam Ortiz', 'Wei Zhang']],
+    ['Initech Software', ['Bill Lum', 'Dana Cruz', 'Eren Polat', 'Faye Wong']],
+    ['Umbrella Health', ['Ada Reyes', 'Karl Jensen', 'Nina Petit', 'Oscar Blom']],
+    ['Stark Materials', ['Vera Holt', 'Yusuf Kaya', 'Zoe Marsh', 'Hugo Lind']],
+  ]
+  const guests: Guest[] = []
+  for (const [company, names] of companies) for (const n of names) guests.push(G(n, company))
+  guests.find((g) => g.name === 'Rana Aziz')!.diet = 'halal'
+  guests.find((g) => g.name === 'Iris Novak')!.diet = 'vegetarian'
+  guests.find((g) => g.name === 'Faye Wong')!.diet = 'vegan'
+  guests.find((g) => g.name === 'Karl Jensen')!.accessibility = true
+
+  const tables = grid(['Table 1', 'Table 2', 'Table 3', 'Table 4', 'Table 5', 'Table 6'], 6, 3, 2)
+  // one host anchors each table — pre-seated and pinned, like a real seating protocol
+  const hosts = guests.filter((g) => g.group === 'Vega Capital (hosts)')
+  hosts.forEach((h, i) => {
+    h.tableId = tables[i].id
+    h.pinned = true
+  })
+
+  const find = (n: string) => guests.find((g) => g.name === n)!.id
+  const constraints: Constraint[] = [
+    { id: uid('c'), kind: 'apart', a: find('Jon Hart'), b: find('Rana Aziz'), note: 'competing for the same contract' },
+    { id: uid('c'), kind: 'apart', a: find('Bill Lum'), b: find('Vera Holt'), note: 'ongoing lawsuit' },
+    { id: uid('c'), kind: 'together', a: find('Mira Solak'), b: find('Dana Cruz'), note: 'want an intro — potential partnership' },
+    { id: uid('c'), kind: 'together', a: find('Wei Zhang'), b: find('Nina Petit'), note: 'asked to meet about the pilot' },
+  ]
+  const groupRules: GroupRule[] = [
+    { group: 'Vega Capital (hosts)', mode: 'spread', maxPerTable: 1 },
+    { group: 'Acme Robotics', mode: 'spread', maxPerTable: 2 },
+    { group: 'Globex Energy', mode: 'spread', maxPerTable: 2 },
+    { group: 'Initech Software', mode: 'spread', maxPerTable: 2 },
+    { group: 'Umbrella Health', mode: 'spread', maxPerTable: 2 },
+    { group: 'Stark Materials', mode: 'spread', maxPerTable: 2 },
+  ]
+  return {
+    name: 'Vega Capital — Partner Networking Dinner',
+    vocab: { person: 'Guest', people: 'Guests', container: 'Table', containers: 'Tables' },
+    guests,
+    tables,
+    constraints,
+    groupRules,
+  }
+}
+
 // ---------------------------------------------------------------- classroom
 
 function classroom(): Seed {
@@ -249,6 +305,13 @@ export const TEMPLATES: Template[] = [
     build: gala,
   },
   {
+    id: 'corporate',
+    title: 'Corporate dinner',
+    icon: '🤝',
+    blurb: '6 companies, mixed for networking, a host at every table.',
+    build: corporate,
+  },
+  {
     id: 'office',
     title: 'Office seating',
     icon: '🏢',
@@ -275,6 +338,7 @@ export function loadTemplate(id: string, actor: 'human' | 'agent' = 'human'): st
       guests: seed.guests,
       tables: seed.tables,
       constraints: seed.constraints,
+      groupRules: seed.groupRules ?? [],
       proposal: null,
       selection: null,
     }),

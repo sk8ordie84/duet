@@ -15,9 +15,14 @@ function score(s: AppState, seats: Map<string, string | null>): number {
     }
     capUsed.set(t, (capUsed.get(t) ?? 0) + 1)
   }
+  const totalSeated = [...capUsed.values()].reduce((a, b) => a + b, 0)
+  const totalCapacity = s.tables.reduce((a, t) => a + t.capacity, 0) || 1
   for (const t of s.tables) {
     const used = capUsed.get(t.id) ?? 0
     if (used > t.capacity) sc -= 1000 * (used - t.capacity)
+    // soft balance: keep each table near its fair share of the room
+    const target = (totalSeated * t.capacity) / totalCapacity
+    sc -= Math.abs(used - target) * 14
   }
   for (const c of s.constraints) {
     const ta = seats.get(c.a)
@@ -35,10 +40,20 @@ function score(s: AppState, seats: Map<string, string | null>): number {
     if (!byTable.has(t)) byTable.set(t, [])
     byTable.get(t)!.push(g)
   }
+  const ruleOf = new Map(s.groupRules.map((r) => [r.group, r]))
   for (const [tid, gs] of byTable) {
     const groups = new Map<string, number>()
     for (const g of gs) if (g.group) groups.set(g.group, (groups.get(g.group) ?? 0) + 1)
-    for (const n of groups.values()) sc += n * (n - 1) * 4 // pairs of same group
+    for (const [group, n] of groups) {
+      const rule = ruleOf.get(group)
+      if (rule?.mode === 'spread') {
+        const max = rule.maxPerTable ?? 2
+        sc -= n * (n - 1) * 6 // discourage same-group pairs
+        if (n > max) sc -= 600 * (n - max) // hard-ish cap
+      } else {
+        sc += n * (n - 1) * 4 // pairs of same group like sitting together
+      }
+    }
     // accessibility fit
     const table = s.tables.find((t) => t.id === tid)!
     for (const g of gs) if (g.accessibility && !table.accessible) sc -= 900

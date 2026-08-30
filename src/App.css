@@ -85,6 +85,36 @@ body {
   padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--bg); color: var(--ink); margin-bottom: 8px;
 }
+.pool-search {
+  width: 100%; font-family: inherit; font-size: 12.5px;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); margin-bottom: 10px;
+}
+.group-block { margin-bottom: 10px; }
+.group-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.group-toggle {
+  flex: 1; display: flex; align-items: center; gap: 7px; min-width: 0;
+  background: none; border: none; padding: 2px 0; cursor: pointer;
+  font-family: inherit; color: var(--ink);
+}
+.group-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.group-name {
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.rule-chip {
+  font-family: ui-monospace, monospace; font-size: 10px;
+  padding: 2px 7px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  flex-shrink: 0;
+}
+.rule-chip.cluster { color: var(--good); border-color: #bcd4c2; background: #eef5ef; }
+.rule-chip.spread { color: var(--agent); border-color: #d8ccf5; background: var(--agent-soft); }
+.chip.seated-chip { opacity: 0.62; }
+.chip-table {
+  margin-left: 5px; font-family: ui-monospace, monospace; font-size: 9.5px;
+  color: var(--muted);
+}
 .pool { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   font-size: 12.5px; padding: 4px 10px; border-radius: 99px;

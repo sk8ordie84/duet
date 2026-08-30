@@ -14,6 +14,18 @@ export interface Guest {
 
 export type ConstraintKind = 'together' | 'apart'
 
+/**
+ * Per-group placement policy.
+ * 'cluster' (default behavior even without a rule): the solver likes keeping the group together.
+ * 'spread': mix the group across tables — at most maxPerTable (default 2) share a table.
+ * Useful for networking dinners (mix companies), hosts (one per table), or chatty kids.
+ */
+export interface GroupRule {
+  group: string
+  mode: 'cluster' | 'spread'
+  maxPerTable?: number
+}
+
 export interface Constraint {
   id: string
   kind: ConstraintKind
@@ -86,6 +98,7 @@ export interface AppState {
   guests: Guest[]
   tables: Table[]
   constraints: Constraint[]
+  groupRules: GroupRule[]
   proposal: Proposal | null
   selection: { type: 'table'; id: string } | { type: 'guest'; id: string } | null
   log: LogEntry[]
@@ -107,6 +120,7 @@ const BLANK: AppState = {
   guests: [],
   tables: [],
   constraints: [],
+  groupRules: [],
   proposal: null,
   selection: null,
   log: [],
@@ -254,6 +268,19 @@ export function conflicts(s: AppState): Conflict[] {
         message: `${t.label} is over capacity (${seated.length}/${t.capacity})`,
         severity: 'error',
       })
+    }
+    for (const rule of s.groupRules) {
+      if (rule.mode !== 'spread') continue
+      const max = rule.maxPerTable ?? 2
+      const members = seated.filter((g) => g.group === rule.group)
+      if (members.length > max) {
+        out.push({
+          tableId: t.id,
+          guestIds: members.map((g) => g.id),
+          message: `${members.length} from "${rule.group}" share ${t.label} (mixing rule: max ${max} per table)`,
+          severity: 'warn',
+        })
+      }
     }
     const needsAccess = seated.filter((g) => g.accessibility)
     if (needsAccess.length > 0 && !t.accessible) {

@@ -58,10 +58,16 @@ Things to ask your agent:
 
 | Template | Scale | What makes it hard |
 | --- | --- | --- |
-| 💍 Wedding reception | 24 guests, 6 tables | Feuding relatives, dietary needs, head table |
+| 💍 Wedding reception | 24 guests, 6 tables | Feuds, divorces, exes; dietary needs; head table |
 | 🥂 Fundraising gala | 120 guests, 16 tables | Donors anchored to hosts, press placement |
+| 🤝 Corporate dinner | 6 companies, 6 tables | Companies **mixed** for networking (group rule: max 2 per table), a pinned host anchoring every table, competitor pairs kept apart |
 | 🏢 Office seating | 23 employees, 6 zones | Quiet zones vs sales calls, team adjacency |
 | 🎓 Classroom | 28 students, 7 pods | Reading groups, chatty pairs to separate |
+
+Relationships are modeled three ways: **pair constraints** (together / apart, with
+notes like "divorced in 2019"), **group rules** (keep a group together, or spread it —
+at most N per table; toggle from the sidebar or via the agent's `set_group_rule`), and
+**pins** (hard human decisions). The solver also balances table fullness.
 
 The engine is domain-agnostic; templates just seed people, places, constraints, and
 vocabulary. Agents can also start from a blank board (`add_table`, `add_guests`) or

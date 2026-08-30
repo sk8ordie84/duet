@@ -43,7 +43,6 @@ export default function App() {
   }, [s.selection])
 
   const cf = conflicts(s)
-  const unassigned = s.guests.filter((g) => g.tableId == null)
 
   return (
     <div className="app">
@@ -96,7 +95,7 @@ export default function App() {
 
       <div className="main">
         <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
-          <GuestPool guests={unassigned} allGuests={s.guests} />
+          <GuestPool />
           <ConflictPanel conflictsList={cf} />
           <ActivityFeed />
         </aside>
@@ -143,14 +142,39 @@ function HelpButton({ mcp }: { mcp: boolean }) {
 
 // ---------------- Guest pool ----------------
 
-function GuestPool({ guests, allGuests }: { guests: Guest[]; allGuests: Guest[] }) {
+function GuestPool() {
   const s = useApp()
   const v = vocab(s)
   const [name, setName] = useState('')
+  const [query, setQuery] = useState('')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const unseated = s.guests.filter((g) => g.tableId == null).length
+  const q = query.trim().toLowerCase()
+  const visible = q ? s.guests.filter((g) => g.name.toLowerCase().includes(q) || g.group?.toLowerCase().includes(q)) : s.guests
+  const groupNames = [...new Set(visible.map((g) => g.group ?? ''))].sort((a, b) => a.localeCompare(b))
+
+  const cycleRule = (group: string) => {
+    const cur = s.groupRules.find((r) => r.group === group)
+    const next: 'cluster' | 'spread' | null = !cur ? 'cluster' : cur.mode === 'cluster' ? 'spread' : null
+    update(
+      (st) => ({
+        ...st,
+        groupRules: [...st.groupRules.filter((r) => r.group !== group), ...(next ? [{ group, mode: next }] : [])],
+      }),
+      {
+        actor: 'human',
+        describe: next
+          ? `rule for "${group}": ${next === 'spread' ? 'mix across tables' : 'keep together'}`
+          : `removed the rule for "${group}"`,
+      }
+    )
+  }
+
   return (
     <section className="panel">
       <h2>
-        {v.people} <span className="count">{guests.length} unseated / {allGuests.length}</span>
+        {v.people} <span className="count">{unseated} unseated / {s.guests.length}</span>
       </h2>
       <form
         className="add-guest"
@@ -170,27 +194,69 @@ function GuestPool({ guests, allGuests }: { guests: Guest[]; allGuests: Guest[] 
       >
         <input placeholder={`Add ${v.person.toLowerCase()}…`} value={name} onChange={(e) => setName(e.target.value)} />
       </form>
-      <div className="pool">
-        {guests.map((g) => (
-          <GuestChip key={g.id} guest={g} />
-        ))}
-        {guests.length === 0 && <div className="empty">Everyone is seated 🎉</div>}
-      </div>
+      {s.guests.length > 8 && (
+        <input
+          className="pool-search"
+          placeholder="Filter by name or group…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
+      {groupNames.map((group) => {
+        const members = visible.filter((g) => (g.group ?? '') === group)
+        const seatedN = members.filter((g) => g.tableId != null).length
+        const rule = s.groupRules.find((r) => r.group === group)
+        const isOpen = !collapsed[group]
+        return (
+          <div key={group || '(no group)'} className="group-block">
+            <div className="group-head">
+              <button
+                className="group-toggle"
+                onClick={() => setCollapsed((c) => ({ ...c, [group]: !c[group] }))}
+                title={isOpen ? 'Collapse' : 'Expand'}
+              >
+                <span className="group-dot" style={{ background: groupColor(group || undefined) }} />
+                <span className="group-name">{group || 'No group'}</span>
+                <span className="count">{seatedN}/{members.length}</span>
+              </button>
+              {group && (
+                <button
+                  className={`rule-chip ${rule?.mode ?? 'none'}`}
+                  onClick={() => cycleRule(group)}
+                  title="Placement rule — click to cycle: none → keep together → mix across tables"
+                >
+                  {rule?.mode === 'spread' ? '⇢ mix' : rule?.mode === 'cluster' ? '⇠ keep' : '· rule'}
+                </button>
+              )}
+            </div>
+            {isOpen && (
+              <div className="pool">
+                {members.map((g) => (
+                  <GuestChip key={g.id} guest={g} tableLabel={s.tables.find((t) => t.id === g.tableId)?.label} />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {s.guests.length === 0 && <div className="empty">Pick a template or ask your agent to import a list.</div>}
     </section>
   )
 }
 
-function GuestChip({ guest }: { guest: Guest }) {
+function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string }) {
   return (
     <div
-      className={`chip ${guest.accessibility ? 'access' : ''}`}
+      className={`chip ${guest.accessibility ? 'access' : ''} ${tableLabel ? 'seated-chip' : ''}`}
       draggable
       onDragStart={(e) => e.dataTransfer.setData('text/guest-id', guest.id)}
-      title={[guest.group, guest.diet !== 'none' ? guest.diet : null].filter(Boolean).join(' · ')}
+      title={[guest.group, guest.diet !== 'none' ? guest.diet : null, tableLabel ? `at ${tableLabel}` : 'unseated'].filter(Boolean).join(' · ')}
     >
       {guest.name}
       {guest.diet !== 'none' && <span className="diet">{DIET_ICON[guest.diet] ?? ''}</span>}
       {guest.accessibility && <span className="diet">♿</span>}
+      {guest.pinned && <span className="diet">📌</span>}
+      {tableLabel && <span className="chip-table">{tableLabel}</span>}
     </div>
   )
 }
