@@ -12,11 +12,15 @@ import {
   guestsAt,
   conflicts,
   dietSummary,
+  applyProposal,
+  dismissProposal,
   uid,
   type Diet,
   type AppState,
+  type ProposedMove,
 } from './model'
 import { solve } from './solver'
+import { TEMPLATES, loadTemplate } from './templates'
 
 type ToolDef = {
   name: string
@@ -85,13 +89,77 @@ function agentActsAtTable(tableId: string | null, label: string) {
   else agentActsAt(140, 80, label) // guest pool area
 }
 
+function agentActsAtCenter(label: string) {
+  const s = getState()
+  if (s.tables.length === 0) return agentActsAt(400, 300, label)
+  const mid = s.tables.reduce((acc, t) => ({ x: acc.x + t.x, y: acc.y + t.y }), { x: 0, y: 0 })
+  agentActsAt(mid.x / s.tables.length, mid.y / s.tables.length, label)
+}
+
 // ---- helpers --------------------------------------------------------------
 
 const DIETS: Diet[] = ['none', 'vegetarian', 'vegan', 'gluten-free', 'halal', 'kosher']
 
+/** Run the solver with human pins always locked. */
+function computeArrangement(respectCurrent: boolean) {
+  const s = getState()
+  const locked = new Set(
+    s.guests.filter((g) => g.pinned || (respectCurrent && g.tableId != null)).map((g) => g.id)
+  )
+  const { seats, moves } = solve(s, { locked, iterations: Math.max(4000, s.guests.length * 120) })
+  const movesList: ProposedMove[] = s.guests
+    .filter((g) => (seats.get(g.id) ?? null) !== g.tableId)
+    .map((g) => ({ guestId: g.id, from: g.tableId, to: seats.get(g.id) ?? null }))
+  // conflicts if this arrangement were applied
+  const hypothetical: AppState = {
+    ...s,
+    guests: s.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
+  }
+  const remaining = conflicts(hypothetical).map((c) => c.message)
+  return { seats, moves, movesList, remaining }
+}
+
+function describeMoves(moves: ProposedMove[]): string[] {
+  const s = getState()
+  const tname = (id: string | null) => (id ? s.tables.find((t) => t.id === id)?.label ?? '?' : 'unassigned')
+  return moves.map((m) => {
+    const g = s.guests.find((g) => g.id === m.guestId)
+    return `${g?.name ?? '?'}: ${tname(m.from)} → ${tname(m.to)}`
+  })
+}
+
+export function exportMarkdown(s: AppState): string {
+  const lines: string[] = [`# ${s.event.name}`, '']
+  for (const t of s.tables) {
+    const seated = guestsAt(s, t.id)
+    lines.push(`## ${t.label} (${seated.length}/${t.capacity})${t.accessible ? ' ♿' : ''}`)
+    for (const g of seated) {
+      const tags = [g.group, g.diet !== 'none' ? g.diet : null, g.accessibility ? 'accessible seating' : null, g.pinned ? 'pinned' : null]
+        .filter(Boolean)
+        .join(', ')
+      lines.push(`- ${g.name}${tags ? ` _(${tags})_` : ''}`)
+    }
+    lines.push('')
+  }
+  const un = s.guests.filter((g) => g.tableId == null)
+  if (un.length) {
+    lines.push(`## Unassigned (${un.length})`)
+    for (const g of un) lines.push(`- ${g.name}`)
+    lines.push('')
+  }
+  lines.push('## Catering brief')
+  for (const [diet, n] of Object.entries(dietSummary(s))) if (diet !== 'none') lines.push(`- ${diet}: ${n}`)
+  const access = s.guests.filter((g) => g.accessibility)
+  if (access.length) lines.push(`- accessible seating: ${access.map((g) => g.name).join(', ')}`)
+  return lines.join('\n')
+}
+
 function planSummary(s: AppState) {
   return {
-    event: s.event,
+    event: { name: s.event.name, template: s.event.template ?? null, vocabulary: s.event.vocab },
+    pending_proposal: s.proposal
+      ? { moves: s.proposal.moves.length, note: s.proposal.note, hint: 'The human sees Accept/Dismiss buttons; you can also resolve it with resolve_proposal.' }
+      : null,
     tables: s.tables.map((t) => ({
       id: t.id,
       label: t.label,
@@ -107,6 +175,7 @@ function planSummary(s: AppState) {
       diet: g.diet,
       accessibility: !!g.accessibility,
       table: s.tables.find((t) => t.id === g.tableId)?.label ?? null,
+      pinned_by_human: !!g.pinned,
     })),
     constraints: s.constraints.map((c) => ({
       kind: c.kind,
@@ -240,6 +309,7 @@ export function registerBaseTools() {
         const s = getState()
         const g = findGuestByName(s, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌). Ask them, or use set_pin to unpin first.` })
         const t = findTable(s, input.table)
         if (!t) return j({ error: `No table matching "${input.table}"` })
         update(
@@ -259,6 +329,7 @@ export function registerBaseTools() {
         const s = getState()
         const g = findGuestByName(s, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌). Ask them, or use set_pin to unpin first.` })
         update(
           (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, tableId: null } : x)) }),
           { actor: 'agent', describe: `unseated ${g.name}` }
@@ -298,40 +369,128 @@ export function registerBaseTools() {
       },
     },
     {
-      name: 'auto_arrange',
+      name: 'propose_arrangement',
       description:
-        'Run the constraint solver to (re)arrange guests across tables: honors together/apart constraints, capacities, group affinity, and accessibility. By default it respects seats the human placed by hand this session unless respect_current is false. Returns the number of moves and remaining conflicts.',
+        'PREFERRED way to rearrange the room: run the constraint solver and present the result to the human as a reviewable proposal (they see the move list with Accept / Dismiss buttons; nothing changes until accepted). Never moves guests the human pinned (📌). Set respect_current:true to only place currently unassigned guests. Provide a short note explaining your reasoning.',
       inputSchema: {
         type: 'object',
         properties: {
           respect_current: {
             type: 'boolean',
-            description: 'If true (default false), currently seated guests stay put and only unassigned guests are placed.',
+            description: 'If true, currently seated guests stay put and only unassigned guests are placed.',
+          },
+          note: { type: 'string', description: 'One sentence shown to the human: why this arrangement.' },
+        },
+      },
+      execute: (input: { respect_current?: boolean; note?: string }) => {
+        const s = getState()
+        if (s.tables.length === 0) return j({ error: 'No tables yet — add tables first.' })
+        const { moves, movesList, remaining } = computeArrangement(!!input.respect_current)
+        if (moves === 0) return j({ ok: true, moves: 0, message: 'Current seating is already optimal under the constraints.' })
+        update(
+          (st) => ({
+            ...st,
+            proposal: { moves: movesList, note: input.note ?? 'Solver-optimized arrangement', createdAt: Date.now() },
+          }),
+          { actor: 'agent', describe: `proposed an arrangement (${moves} moves) — awaiting review` }
+        )
+        agentActsAtCenter(`proposal · ${moves} moves`)
+        return j({
+          ok: true,
+          status: 'pending_human_review',
+          moves,
+          conflicts_after_if_accepted: remaining,
+          proposed_moves: describeMoves(movesList),
+        })
+      },
+    },
+    {
+      name: 'auto_arrange',
+      description:
+        'Run the constraint solver and apply the result IMMEDIATELY, without human review. Never moves guests the human pinned (📌). Prefer propose_arrangement unless the human explicitly asked you to just do it. Set respect_current:true to only place unassigned guests.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          respect_current: {
+            type: 'boolean',
+            description: 'If true, currently seated guests stay put and only unassigned guests are placed.',
           },
         },
       },
       execute: (input: { respect_current?: boolean }) => {
         const s = getState()
         if (s.tables.length === 0) return j({ error: 'No tables yet — add tables first.' })
-        const locked = input.respect_current
-          ? new Set(s.guests.filter((g) => g.tableId != null).map((g) => g.id))
-          : new Set<string>()
-        const { seats, moves } = solve(s, { locked })
+        const { seats, moves, remaining } = computeArrangement(!!input.respect_current)
         update(
-          (st) => ({ ...st, guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })) }),
+          (st) => ({
+            ...st,
+            proposal: null,
+            guests: st.guests.map((g) => ({ ...g, tableId: seats.get(g.id) ?? null })),
+          }),
           { actor: 'agent', describe: `auto-arranged the room (${moves} moves)` }
         )
-        const mid = getState().tables.reduce((acc, t) => ({ x: acc.x + t.x, y: acc.y + t.y }), { x: 0, y: 0 })
-        const n = getState().tables.length
-        agentActsAt(mid.x / n, mid.y / n, `auto-arrange · ${moves} moves`)
-        const cf = conflicts(getState())
-        return j({
-          ok: true,
-          moves,
-          remaining_conflicts: cf.map((c) => c.message),
-          plan: planSummary(getState()).tables,
-        })
+        agentActsAtCenter(`auto-arrange · ${moves} moves`)
+        return j({ ok: true, moves, remaining_conflicts: remaining, plan: planSummary(getState()).tables })
       },
+    },
+    {
+      name: 'resolve_proposal',
+      description:
+        'Apply or withdraw the pending arrangement proposal. Use action "apply" only when the human said yes in conversation; use "withdraw" to retract your own proposal.',
+      inputSchema: {
+        type: 'object',
+        properties: { action: { type: 'string', enum: ['apply', 'withdraw'] } },
+        required: ['action'],
+      },
+      execute: (input: { action: 'apply' | 'withdraw' }) => {
+        const ok = input.action === 'apply' ? applyProposal('agent') : dismissProposal('agent')
+        if (ok) agentActsAtCenter(input.action === 'apply' ? 'proposal applied' : 'proposal withdrawn')
+        return j(ok ? { ok: true } : { error: 'No pending proposal.' })
+      },
+    },
+    {
+      name: 'set_pin',
+      description:
+        'Pin or unpin a guest. Pinned guests (📌) are human-locked decisions: the solver and rearrangement never move them. Guests the human seats by drag are pinned automatically; only unpin when the human asks.',
+      inputSchema: {
+        type: 'object',
+        properties: { guest: { type: 'string' }, pinned: { type: 'boolean' } },
+        required: ['guest', 'pinned'],
+      },
+      execute: (input: { guest: string; pinned: boolean }) => {
+        const s = getState()
+        const g = findGuestByName(s, input.guest)
+        if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        update(
+          (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, pinned: input.pinned } : x)) }),
+          { actor: 'agent', describe: `${input.pinned ? 'pinned' : 'unpinned'} ${g.name}` }
+        )
+        agentActsAtTable(g.tableId, `${input.pinned ? '📌' : 'unpin'} ${g.name}`)
+        return j({ ok: true })
+      },
+    },
+    {
+      name: 'load_template',
+      description: `Start a scenario from a template. Replaces the current plan. Available: ${TEMPLATES.map((t) => `"${t.id}" (${t.blurb})`).join(' · ')}`,
+      inputSchema: {
+        type: 'object',
+        properties: { template: { type: 'string', enum: TEMPLATES.map((t) => t.id) } },
+        required: ['template'],
+      },
+      execute: (input: { template: string }) => {
+        const name = loadTemplate(input.template, 'agent')
+        if (!name) return j({ error: `Unknown template "${input.template}"` })
+        agentActsAtCenter('loaded template')
+        return j({ ok: true, event: name, plan: planSummary(getState()) })
+      },
+    },
+    {
+      name: 'export_plan',
+      description:
+        'Export the finished plan as clean markdown: per-table seating list plus a dietary/accessibility brief. Use when the human wants to share the plan, email the caterer, or print place cards.',
+      inputSchema: { type: 'object', properties: {} },
+      annotations: { readOnlyHint: true },
+      execute: () => exportMarkdown(getState()),
     },
     {
       name: 'get_conflicts',
@@ -421,6 +580,7 @@ export function syncSelectionTools() {
         const st = getState()
         const g = findGuestByName(st, input.guest)
         if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌).` })
         update(
           (x) => ({ ...x, guests: x.guests.map((gg) => (gg.id === g.id ? { ...gg, tableId: sel } : gg)) }),
           { actor: 'agent', describe: `seated ${g.name} at ${table.label} (selected)` }
@@ -434,12 +594,13 @@ export function syncSelectionTools() {
       description: `Move everyone at the selected table ("${table.label}") back to the unassigned pool.`,
       inputSchema: { type: 'object', properties: {} },
       execute: () => {
+        const kept = getState().guests.filter((g) => g.tableId === sel && g.pinned)
         update(
-          (x) => ({ ...x, guests: x.guests.map((g) => (g.tableId === sel ? { ...g, tableId: null } : g)) }),
+          (x) => ({ ...x, guests: x.guests.map((g) => (g.tableId === sel && !g.pinned ? { ...g, tableId: null } : g)) }),
           { actor: 'agent', describe: `cleared ${table.label}` }
         )
         agentActsAt(table.x, table.y, 'cleared')
-        return j({ ok: true })
+        return j({ ok: true, kept_pinned: kept.map((g) => g.name) })
       },
     },
     {

@@ -120,6 +120,63 @@ export function solve(
     }
   }
 
+  // Repair pass: targeted fixes for violated "together" constraints that random
+  // search may miss (e.g. every table exactly full, so only one specific swap works).
+  for (let round = 0; round < 3; round++) {
+    let fixedAny = false
+    for (const c of s.constraints) {
+      if (c.kind !== 'together') continue
+      const ta = seats.get(c.a)
+      const tb = seats.get(c.b)
+      if (ta == null || tb == null || ta === tb) continue
+      const movable = [
+        { id: c.a, from: ta, to: tb },
+        { id: c.b, from: tb, to: ta },
+      ].filter((m) => !locked.has(m.id))
+      let bestScore = cur
+      let bestApply: (() => void) | null = null
+      for (const m of movable) {
+        // try direct move (if capacity allows) and every swap with an occupant of the target table
+        const occupants = s.guests.filter((g) => seats.get(g.id) === m.to && !locked.has(g.id) && g.id !== c.a && g.id !== c.b)
+        // tables with spare capacity, for 3-way relocations
+        const used = new Map<string, number>()
+        for (const g of s.guests) {
+          const t = seats.get(g.id)
+          if (t != null) used.set(t, (used.get(t) ?? 0) + 1)
+        }
+        const spare = s.tables.filter((t) => (used.get(t.id) ?? 0) < t.capacity).map((t) => t.id)
+        const candidates: Array<[string, string | null][]> = [
+          [[m.id, m.to]],
+          ...occupants.map((o) => [[m.id, m.to], [o.id, m.from]] as [string, string | null][]),
+          ...occupants.flatMap((o) =>
+            spare
+              .filter((t2) => t2 !== m.to)
+              .map((t2) => [[m.id, m.to], [o.id, t2]] as [string, string | null][])
+          ),
+        ]
+        for (const change of candidates) {
+          const prev = change.map(([id]) => [id, seats.get(id) ?? null] as const)
+          for (const [id, t] of change) seats.set(id, t)
+          const ns = score(s, seats)
+          if (ns > bestScore) {
+            bestScore = ns
+            const frozen = change.map((c) => [...c] as [string, string | null])
+            bestApply = () => {
+              for (const [id, t] of frozen) seats.set(id, t)
+            }
+          }
+          for (const [id, t] of prev) seats.set(id, t)
+        }
+      }
+      if (bestApply) {
+        bestApply()
+        cur = bestScore
+        fixedAny = true
+      }
+    }
+    if (!fixedAny) break
+  }
+
   let moves = 0
   for (const g of s.guests) if (seats.get(g.id) !== g.tableId) moves++
   return { seats, moves, score: cur }

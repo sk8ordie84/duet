@@ -6,12 +6,15 @@ import {
   undo,
   guestsAt,
   conflicts,
+  vocab,
+  applyProposal,
+  dismissProposal,
   uid,
   type Guest,
   type Table,
 } from './model'
-import { registerBaseTools, syncSelectionTools, webmcpAvailable } from './webmcp'
-import { seedDemo } from './demo'
+import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown } from './webmcp'
+import { TEMPLATES, loadTemplate } from './templates'
 import './App.css'
 
 function useApp() {
@@ -59,23 +62,34 @@ export default function App() {
             {mcp ? '● agent connected via WebMCP' : '○ WebMCP not available'}
           </span>
           <button className="btn" onClick={() => undo()}>↩ Undo</button>
-          {s.guests.length === 0 ? (
-            <button className="btn primary" onClick={seedDemo}>Load sample event</button>
-          ) : (
-            <button
-              className="btn"
-              onClick={() => {
-                if (confirm('Clear the whole plan?')) {
-                  localStorage.removeItem('duet-plan-v1')
-                  update(
-                    (st) => ({ ...st, guests: [], tables: [], constraints: [], selection: null }),
-                    { actor: 'human', describe: 'cleared the plan' }
+          {s.guests.length > 0 && (
+            <>
+              <button
+                className="btn"
+                onClick={() => {
+                  navigator.clipboard.writeText(exportMarkdown(getState())).then(
+                    () => alert('Plan copied as markdown — paste it anywhere.'),
+                    () => alert('Could not access the clipboard.')
                   )
-                }
-              }}
-            >
-              Reset
-            </button>
+                }}
+              >
+                ⇪ Export
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  if (confirm('Clear the whole plan?')) {
+                    localStorage.removeItem('duet-plan-v1')
+                    update(
+                      (st) => ({ ...st, guests: [], tables: [], constraints: [], proposal: null, selection: null }),
+                      { actor: 'human', describe: 'cleared the plan' }
+                    )
+                  }
+                }}
+              >
+                Reset
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -110,12 +124,12 @@ function HelpButton({ mcp }: { mcp: boolean }) {
           </p>
           <p>You drag guests and make the judgment calls. Your agent does the constraint labor. Try asking it:</p>
           <ul>
-            <li>“Load the sample event, then seat everyone.”</li>
+            <li>“Load the gala template and propose a seating plan.”</li>
             <li>“Add my guests: Ali (groom's family, vegan), Sara (college friends)…”</li>
-            <li>“Uncle Cem and Robert can't stand each other — keep them apart, then fix the room.”</li>
-            <li>“Rearrange, but respect what I placed by hand.”</li>
-            <li><em>Select a table, then:</em> “Who's at this table? Fill it from the college friends.”</li>
-            <li>“Give me a per-table dietary brief for the caterer.”</li>
+            <li>“These two can't stand each other — keep them apart, then propose a fix.”</li>
+            <li><em>Drag someone yourself</em> — they get pinned 📌 and the agent must work around your call.</li>
+            <li><em>Select a table, then:</em> “Who's at this table? Fill the empty seats.”</li>
+            <li>“Export the plan and draft an email to the caterer.”</li>
           </ul>
           <p className="help-foot">
             Every agent action shows up as the <span className="agent-ink">✳ violet cursor</span> and in the activity
@@ -130,11 +144,13 @@ function HelpButton({ mcp }: { mcp: boolean }) {
 // ---------------- Guest pool ----------------
 
 function GuestPool({ guests, allGuests }: { guests: Guest[]; allGuests: Guest[] }) {
+  const s = useApp()
+  const v = vocab(s)
   const [name, setName] = useState('')
   return (
     <section className="panel">
       <h2>
-        Guests <span className="count">{guests.length} unseated / {allGuests.length}</span>
+        {v.people} <span className="count">{guests.length} unseated / {allGuests.length}</span>
       </h2>
       <form
         className="add-guest"
@@ -143,16 +159,16 @@ function GuestPool({ guests, allGuests }: { guests: Guest[]; allGuests: Guest[] 
           const n = name.trim()
           if (!n) return
           update(
-            (s) => ({
-              ...s,
-              guests: [...s.guests, { id: uid('g'), name: n, diet: 'none', tableId: null }],
+            (st) => ({
+              ...st,
+              guests: [...st.guests, { id: uid('g'), name: n, diet: 'none', tableId: null }],
             }),
-            { actor: 'human', describe: `added guest ${n}` }
+            { actor: 'human', describe: `added ${v.person.toLowerCase()} ${n}` }
           )
           setName('')
         }}
       >
-        <input placeholder="Add guest…" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder={`Add ${v.person.toLowerCase()}…`} value={name} onChange={(e) => setName(e.target.value)} />
       </form>
       <div className="pool">
         {guests.map((g) => (
@@ -259,11 +275,57 @@ function Board() {
       ))}
       {s.tables.length === 0 && (
         <div className="board-empty">
-          <p>No tables yet.</p>
-          <p className="hint">Click “Load sample event”, or ask your agent: “set up 6 tables of 8 for a wedding”.</p>
+          <p className="empty-title">What are we arranging today?</p>
+          <div className="template-grid">
+            {TEMPLATES.map((t) => (
+              <button key={t.id} className="template-card" onClick={() => loadTemplate(t.id, 'human')}>
+                <span className="template-icon">{t.icon}</span>
+                <span className="template-title">{t.title}</span>
+                <span className="template-blurb">{t.blurb}</span>
+              </button>
+            ))}
+          </div>
+          <p className="hint">…or start from scratch: ask your agent to add tables and import your list.</p>
         </div>
       )}
+      <ProposalBanner />
       <AgentCursor />
+    </div>
+  )
+}
+
+function ProposalBanner() {
+  const s = useApp()
+  const [openList, setOpenList] = useState(false)
+  if (!s.proposal) return null
+  const p = s.proposal
+  const tname = (id: string | null) => (id ? s.tables.find((t) => t.id === id)?.label ?? '?' : 'unassigned')
+  return (
+    <div className="proposal">
+      <div className="proposal-row">
+        <span className="proposal-mark">✳</span>
+        <div className="proposal-text">
+          <strong>Your agent proposes {p.moves.length} moves</strong>
+          <span className="proposal-note">{p.note}</span>
+        </div>
+        <button className="btn" onClick={() => setOpenList(!openList)}>
+          {openList ? 'Hide' : 'Review'}
+        </button>
+        <button className="btn primary" onClick={() => applyProposal('human')}>Accept</button>
+        <button className="btn" onClick={() => dismissProposal('human')}>Dismiss</button>
+      </div>
+      {openList && (
+        <ul className="proposal-moves">
+          {p.moves.map((m) => {
+            const g = s.guests.find((g) => g.id === m.guestId)
+            return (
+              <li key={m.guestId}>
+                <strong>{g?.name}</strong> {tname(m.from)} → {tname(m.to)}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
@@ -332,8 +394,11 @@ function TableView({
         if (!gid) return
         const g = getState().guests.find((g) => g.id === gid)
         update(
-          (st) => ({ ...st, guests: st.guests.map((x) => (x.id === gid ? { ...x, tableId: table.id } : x)) }),
-          { actor: 'human', describe: `seated ${g?.name ?? 'guest'} at ${table.label}` }
+          (st) => ({
+            ...st,
+            guests: st.guests.map((x) => (x.id === gid ? { ...x, tableId: table.id, pinned: true } : x)),
+          }),
+          { actor: 'human', describe: `seated ${g?.name ?? 'guest'} at ${table.label} 📌` }
         )
       }}
     >
@@ -347,18 +412,27 @@ function TableView({
         seat.guest ? (
           <div
             key={seat.guest.id}
-            className="seat filled"
+            className={`seat filled ${seat.guest.pinned ? 'pinned' : ''}`}
             style={{ transform: `translate(${seat.x}px, ${seat.y}px)`, background: groupColor(seat.guest.group) }}
-            title={[seat.guest.name, seat.guest.group, seat.guest.diet !== 'none' ? seat.guest.diet : null, seat.guest.accessibility ? 'accessible seating' : null].filter(Boolean).join(' · ')}
+            title={[seat.guest.name, seat.guest.group, seat.guest.diet !== 'none' ? seat.guest.diet : null, seat.guest.accessibility ? 'accessible seating' : null, seat.guest.pinned ? 'pinned — double-click to unpin' : 'double-click to pin'].filter(Boolean).join(' · ')}
             draggable
             onDragStart={(e) => {
               e.stopPropagation()
               e.dataTransfer.setData('text/guest-id', seat.guest!.id)
             }}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              const g = seat.guest!
+              update(
+                (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, pinned: !g.pinned } : x)) }),
+                { actor: 'human', describe: `${g.pinned ? 'unpinned' : 'pinned'} ${g.name}` }
+              )
+            }}
           >
             {initials(seat.guest.name)}
             {seat.guest.diet !== 'none' && <span className="seat-badge">{DIET_ICON[seat.guest.diet] ?? ''}</span>}
             {seat.guest.accessibility && <span className="seat-badge low">♿</span>}
+            {seat.guest.pinned && <span className="seat-badge pin">📌</span>}
             <span className="seat-name">{shortName(seat.guest.name)}</span>
           </div>
         ) : (

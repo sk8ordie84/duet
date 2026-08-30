@@ -199,6 +199,48 @@ body {
   50% { transform: scale(1.12); }
 }
 
+/* ---------- templates ---------- */
+.empty-title { font-size: 22px; font-style: italic; margin-bottom: 14px; }
+.template-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 230px));
+  gap: 12px; justify-content: center; padding: 0 20px;
+}
+.template-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  text-align: left; font-family: inherit;
+  background: var(--panel); border: 1.5px solid var(--line); border-radius: 14px;
+  padding: 16px; cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.template-card:hover {
+  transform: translateY(-2px); border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(60, 45, 20, 0.12);
+}
+.template-icon { font-size: 26px; }
+.template-title { font-weight: 700; font-size: 15px; color: var(--ink); }
+.template-blurb { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+/* ---------- proposal ---------- */
+.proposal {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 55; width: min(560px, calc(100% - 32px));
+  background: var(--panel); border: 1.5px solid var(--agent);
+  border-radius: 14px; padding: 10px 14px;
+  box-shadow: 0 8px 30px rgba(109, 79, 194, 0.25);
+}
+.proposal-row { display: flex; align-items: center; gap: 10px; }
+.proposal-mark { color: var(--agent); font-size: 18px; }
+.proposal-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.proposal-text strong { font-size: 14px; }
+.proposal-note { font-size: 12px; color: var(--muted); font-style: italic; }
+.proposal-moves {
+  margin: 10px 0 2px; padding-left: 22px; max-height: 180px; overflow-y: auto;
+  font-size: 13px; line-height: 1.6; column-count: 2; column-gap: 20px;
+}
+
+.seat-badge.pin { top: auto; bottom: -5px; left: -5px; right: auto; }
+.seat.pinned { border-color: var(--ink); }
+
 /* ---------- help ---------- */
 .help-fab {
   position: absolute; right: 18px; bottom: 18px; z-index: 60;

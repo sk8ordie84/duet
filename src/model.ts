@@ -9,6 +9,7 @@ export interface Guest {
   diet: Diet
   accessibility?: boolean // needs accessible seating
   tableId: string | null // null = unassigned pool
+  pinned?: boolean // placed by the human — solver and agent must not move them
 }
 
 export type ConstraintKind = 'together' | 'apart'
@@ -41,9 +42,32 @@ export interface Conflict {
   severity: 'error' | 'warn'
 }
 
+export interface Vocab {
+  person: string // "Guest" | "Employee" | "Student"
+  people: string
+  container: string // "Table" | "Zone" | "Group"
+  containers: string
+}
+
 export interface EventInfo {
   name: string
   date?: string
+  template?: string
+  vocab?: Vocab
+}
+
+export const DEFAULT_VOCAB: Vocab = { person: 'Guest', people: 'Guests', container: 'Table', containers: 'Tables' }
+
+export interface ProposedMove {
+  guestId: string
+  from: string | null // tableId
+  to: string | null
+}
+
+export interface Proposal {
+  moves: ProposedMove[]
+  note: string
+  createdAt: number
 }
 
 export interface Actor {
@@ -62,6 +86,7 @@ export interface AppState {
   guests: Guest[]
   tables: Table[]
   constraints: Constraint[]
+  proposal: Proposal | null
   selection: { type: 'table'; id: string } | { type: 'guest'; id: string } | null
   log: LogEntry[]
   // transient agent presence: where the agent "cursor" is acting
@@ -78,10 +103,11 @@ type Listener = () => void
 const listeners = new Set<Listener>()
 
 const BLANK: AppState = {
-  event: { name: 'Deniz & Mia — Wedding Reception' },
+  event: { name: 'Untitled event', vocab: DEFAULT_VOCAB },
   guests: [],
   tables: [],
   constraints: [],
+  proposal: null,
   selection: null,
   log: [],
   agentFocus: null,
@@ -240,6 +266,39 @@ export function conflicts(s: AppState): Conflict[] {
     }
   }
   return out
+}
+
+export function vocab(s: AppState): Vocab {
+  return s.event.vocab ?? DEFAULT_VOCAB
+}
+
+/** Apply a pending proposal. actor records who confirmed it. */
+export function applyProposal(actor: 'human' | 'agent') {
+  const s = getState()
+  if (!s.proposal) return false
+  const moves = s.proposal.moves
+  update(
+    (st) => ({
+      ...st,
+      guests: st.guests.map((g) => {
+        const m = moves.find((m) => m.guestId === g.id)
+        return m ? { ...g, tableId: m.to } : g
+      }),
+      proposal: null,
+    }),
+    { actor, describe: `${actor === 'human' ? 'accepted' : 'applied'} the proposal (${moves.length} moves)` }
+  )
+  return true
+}
+
+export function dismissProposal(actor: 'human' | 'agent') {
+  const s = getState()
+  if (!s.proposal) return false
+  update((st) => ({ ...st, proposal: null }), {
+    actor,
+    describe: actor === 'human' ? 'dismissed the proposal' : 'withdrew the proposal',
+  })
+  return true
 }
 
 export function dietSummary(s: AppState): Record<string, number> {
