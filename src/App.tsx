@@ -57,8 +57,6 @@ export default function App() {
     syncSelectionTools()
   }, [s.selection])
 
-  const cf = conflicts(s)
-
   return (
     <div className="app">
       <header className="topbar">
@@ -136,7 +134,6 @@ export default function App() {
       <div className="main">
         <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
           <GuestPool />
-          <ConflictPanel conflictsList={cf} />
           <ActivityFeed />
         </aside>
         <Board />
@@ -395,22 +392,38 @@ function ImportModal({ onClose }: { onClose: () => void }) {
 
 // ---------------- Conflicts ----------------
 
-function ConflictPanel({ conflictsList }: { conflictsList: ReturnType<typeof conflicts> }) {
+function ConflictDock() {
+  const s = useApp()
+  const [open, setOpen] = useState(true)
+  const list = conflicts(s)
+  if (s.tables.length === 0) return null
+  if (list.length === 0) {
+    return s.guests.length > 0 ? <div className="conflict-dock clean">All clear — no conflicts</div> : null
+  }
   return (
-    <section className="panel">
-      <h2>
-        Conflicts{' '}
-        <span className={`count ${conflictsList.length ? 'bad' : 'good'}`}>{conflictsList.length}</span>
-      </h2>
-      <div className="conflicts">
-        {conflictsList.length === 0 && <div className="empty">No conflicts — clean plan ✓</div>}
-        {conflictsList.map((c, i) => (
-          <div key={i} className={`conflict ${c.severity}`}>
-            {c.message}
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="conflict-dock">
+      <button className="dock-head" onClick={() => setOpen(!open)}>
+        <span className="dock-flame">⚠</span>
+        <strong>{list.length} to resolve</strong>
+        <span className="dock-caret">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="dock-list">
+          {list.map((c, i) => (
+            <button
+              key={i}
+              className={`dock-item ${c.severity}`}
+              onClick={() => {
+                if (c.tableId)
+                  update((st) => ({ ...st, selection: { type: 'table', id: c.tableId! } }), { undoable: false })
+              }}
+            >
+              {c.message}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -455,6 +468,16 @@ function Board() {
     (acc, t) => ({ w: Math.max(acc.w, t.x + 260), h: Math.max(acc.h, t.y + 260) }),
     { w: 1200, h: 900 }
   )
+
+  // auto-fit when a template loads or the table set changes size significantly
+  const lastFitKey = useRef('')
+  useEffect(() => {
+    const key = `${s.event.template ?? ''}:${s.tables.length}`
+    if (key !== lastFitKey.current) {
+      lastFitKey.current = key
+      if (s.tables.length > 0) requestAnimationFrame(() => fit())
+    }
+  })
 
   const fit = () => {
     const el = ref.current
@@ -542,6 +565,7 @@ function Board() {
         <button className="btn" onClick={fit} title="Fit the whole room in view">⤢</button>
       </div>
     )}
+    <ConflictDock />
     <ProposalBanner />
     </div>
   )
@@ -583,7 +607,7 @@ function ProposalBanner() {
   )
 }
 
-const GROUP_COLORS = ['#c2703f', '#6d8f5b', '#7a6bb5', '#b05c7d', '#5b8a99', '#a68a3d', '#8a655f', '#5f7d8a']
+const GROUP_COLORS = ['#d0784a', '#7fa869', '#8d7dd6', '#c96a90', '#5fa3b5', '#c2a04a', '#a5776d', '#6b93a8']
 
 function groupColor(group?: string): string {
   if (!group) return '#9b917f'
