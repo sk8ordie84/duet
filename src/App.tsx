@@ -546,10 +546,7 @@ function ConflictDock() {
   const s = useApp()
   const [open, setOpen] = useState(true)
   const list = conflicts(s)
-  if (s.tables.length === 0) return null
-  if (list.length === 0) {
-    return s.guests.length > 0 ? <div className="conflict-dock clean">All clear — no conflicts</div> : null
-  }
+  if (s.tables.length === 0 || list.length === 0) return null
   return (
     <div className="conflict-dock">
       <button className="dock-head" onClick={() => setOpen(!open)}>
