@@ -191,7 +191,7 @@ export default function App() {
                 className="btn"
                 onClick={() => {
                   if (confirm('Clear the whole plan?')) {
-                    localStorage.removeItem('duet-plan-v1')
+                    sessionStorage.removeItem('duet-plan-v1')
                     update(
                       (st) => ({ ...st, guests: [], tables: [], constraints: [], proposal: null, selection: null }),
                       { actor: 'human', describe: 'cleared the plan' }

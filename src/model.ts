@@ -156,9 +156,11 @@ const BLANK: AppState = {
 
 const STORAGE_KEY = 'duet-plan-v1'
 
+// sessionStorage on purpose: a reload mid-session keeps your work, but every
+// fresh visit starts clean at the template picker.
 function load(): AppState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = sessionStorage.getItem(STORAGE_KEY)
     if (!raw) return BLANK
     const saved = JSON.parse(raw)
     // rebase the id counter above any persisted ids
@@ -175,7 +177,7 @@ function load(): AppState {
 function persist(s: AppState) {
   try {
     const { selection, agentFocus, ...rest } = s
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
   } catch {
     // storage unavailable (private mode etc.) — app still works in-memory
   }
