@@ -42,6 +42,9 @@ await ctx.addInitScript(() => {
 })
 
 const page = await ctx.newPage()
+const t0 = Date.now()
+const marks = []
+const mark = (label) => marks.push({ label, t: +(((Date.now() - t0) / 1000)).toFixed(2) })
 await page.goto(URL, { waitUntil: 'networkidle' })
 await page.evaluate(() => sessionStorage.clear())
 await page.reload({ waitUntil: 'networkidle' })
@@ -113,8 +116,8 @@ await page.evaluate(() => {
 })
 
 const stage = {
-  caption: (html) => page.evaluate((h) => window.__stage.caption(h), html),
-  card: (html) => page.evaluate((h) => window.__stage.card(h), html),
+  caption: (html) => { mark('cap:' + (html ? html.replace(/<[^>]+>/g, '').slice(0, 28) : 'off')); return page.evaluate((h) => window.__stage.caption(h), html) },
+  card: (html) => { mark(html ? 'card' : 'cardoff'); return page.evaluate((h) => window.__stage.card(h), html) },
   press: (d) => page.evaluate((v) => window.__stage.press(v), d),
 }
 
@@ -191,11 +194,11 @@ await sleep(1000)
 
 // S1 — the problem + picker
 await stage.caption(`Seating a room is a <span class="k">two-brain problem</span> — taste and politics on one side, a pile of constraints on the other.`)
-await sleep(3600)
+await sleep(8300)
 const galaCard = await center('.template-card', 'Fundraising gala')
 await stage.caption(`Tonight: a fundraising gala. <span class="k">120 guests, 16 tables</span> — feuds, diets, donors, press.`)
 await clickAt(galaCard.x, galaCard.y)
-await sleep(2600)
+await sleep(7400)
 await stage.caption(null)
 await sleep(400)
 
@@ -204,32 +207,32 @@ await stage.caption(`<span class="k">You make the calls.</span> Drag anyone — 
 await dragGuest('.chip', 'Katja Ilic', 'Table 1')
 await sleep(700)
 await dragGuest('.chip', 'Ada Okafor', 'Table 1')
-await sleep(1600)
+await sleep(3000)
 await stage.caption(null)
 await sleep(400)
 
 // S3 — agent works the board
 await stage.caption(`<span class="a">Your agent works the same board</span> — through 22 real WebMCP tools, not screenshots.`)
 await agent('add_constraint', { kind: 'apart', guest_a: 'Wale Costa', guest_b: 'Ada Okafor', note: 'no interviews at dinner' })
-await sleep(2300)
+await sleep(3300)
 await agent('set_group_rule', { group: 'corporate partners', mode: 'spread', max_per_table: 2 })
-await sleep(2300)
+await sleep(3300)
 await stage.caption(`It records the feuds, sets the mixing rules… and <span class="a">never surprises you</span>: it proposes.`)
 await agent('propose_arrangement', { note: 'Donors seated with their hosts, press kept away from the board, partners mixed — your two pins untouched.' })
-await sleep(3400)
+await sleep(7900)
 await stage.caption(null)
 await sleep(300)
 
 // S4 — review & accept
 const review = await center('.proposal .btn', 'Review')
 await clickAt(review.x, review.y)
-await sleep(2600)
+await sleep(6300)
 await stage.caption(`<span class="k">You stay in charge.</span> Review the moves — then one click.`)
 const accept = await center('.proposal .btn.primary')
 await clickAt(accept.x, accept.y)
 await sleep(1200)
 await stage.caption(`118 moves. Every feud honored, every diet counted — and your pins <span class="k">exactly where you left them</span>.`)
-await sleep(3600)
+await sleep(6300)
 await stage.caption(null)
 await sleep(400)
 
@@ -238,17 +241,17 @@ await stage.caption(`Break something on purpose — <span class="k">the room rea
 await dragGuest('.seat.filled', 'Wale Costa', 'Table 1', 800)
 await sleep(2400)
 const tag = await center('.conflict-tag')
-if (tag) { await glide(tag.x, tag.y, 600); await page.mouse.move(tag.x, tag.y); await sleep(3000) }
+if (tag) { await glide(tag.x, tag.y, 600); await page.mouse.move(tag.x, tag.y); await sleep(4800) }
 await stage.caption(null)
 await sleep(300)
 
 // S6 — ask the agent to fix it + explainability
 await stage.caption(`Ask your agent to fix it — or ask <span class="a">“why is she seated there?”</span> The solver explains itself.`)
 await agent('propose_arrangement', { note: 'Two moves to separate Wale and Ada again — nothing else changes.', respect_current: false })
-await sleep(2800)
+await sleep(4800)
 const accept2 = await center('.proposal .btn.primary')
 if (accept2) await clickAt(accept2.x, accept2.y)
-await sleep(2200)
+await sleep(5200)
 await stage.caption(null)
 await sleep(300)
 
@@ -258,7 +261,7 @@ for (const t of ['wedding', 'office', 'classroom']) {
   await agent('load_template', { template: t })
   await sleep(500)
   await agent('auto_arrange', {})
-  await sleep(2100)
+  await sleep(2400)
 }
 await stage.caption(null)
 await sleep(400)
@@ -272,8 +275,9 @@ await stage.card(`
   <div class="url">github.com/sk8ordie84/duet</div>
   <div class="sub">Built on WebMCP</div>
 `)
-await sleep(5200)
+await sleep(8000)
 
 await ctx.close()
 await browser.close()
+console.log('MARKS ' + JSON.stringify(marks))
 console.log('DONE — raw webm in video/raw/')
