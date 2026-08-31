@@ -328,6 +328,7 @@ function GuestPool() {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [importing, setImporting] = useState(false)
+  const [editingGuest, setEditingGuest] = useState<string | null>(null)
 
   const unseated = s.guests.filter((g) => g.tableId == null).length
   const q = query.trim().toLowerCase()
@@ -421,7 +422,7 @@ function GuestPool() {
             {isOpen && (
               <div className="pool">
                 {members.map((g) => (
-                  <GuestChip key={g.id} guest={g} tableLabel={s.tables.find((t) => t.id === g.tableId)?.label} />
+                  <GuestChip key={g.id} guest={g} tableLabel={s.tables.find((t) => t.id === g.tableId)?.label} onEdit={setEditingGuest} />
                 ))}
               </div>
             )}
@@ -429,11 +430,85 @@ function GuestPool() {
         )
       })}
       {s.guests.length === 0 && <div className="empty">Pick a template or ask your agent to import a list.</div>}
+      {editingGuest && <GuestEditModal id={editingGuest} onClose={() => setEditingGuest(null)} />}
     </section>
   )
 }
 
-function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string }) {
+function GuestEditModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const s = useApp()
+  const g = s.guests.find((x) => x.id === id)
+  const v = vocab(s)
+  const [name, setName] = useState(g?.name ?? '')
+  const [group, setGroup] = useState(g?.group ?? '')
+  const [diet, setDiet] = useState<Diet>(g?.diet ?? 'none')
+  const [access, setAccess] = useState(!!g?.accessibility)
+  if (!g) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-slim" onClick={(e) => e.stopPropagation()}>
+        <h3>Edit {v.person.toLowerCase()}</h3>
+        <div className="edit-grid">
+          <label>Name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Group<input value={group} placeholder="e.g. bride's family" onChange={(e) => setGroup(e.target.value)} /></label>
+          <label>Diet
+            <select value={diet} onChange={(e) => setDiet(e.target.value as Diet)}>
+              {(['none', 'vegetarian', 'vegan', 'gluten-free', 'halal', 'kosher'] as Diet[]).map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+          <label className="edit-check">
+            <input type="checkbox" checked={access} onChange={(e) => setAccess(e.target.checked)} /> ♿ needs accessible seating
+          </label>
+        </div>
+        <div className="modal-actions">
+          <button
+            className="btn insp-del"
+            onClick={() => {
+              if (!confirm(`Remove ${g.name} from the event?`)) return
+              update(
+                (st) => ({
+                  ...st,
+                  guests: st.guests.filter((x) => x.id !== g.id),
+                  constraints: st.constraints.filter((c) => c.a !== g.id && c.b !== g.id),
+                }),
+                { actor: 'human', describe: `removed ${g.name}` }
+              )
+              onClose()
+            }}
+          >
+            <IcClose /> Remove
+          </button>
+          <span style={{ flex: 1 }} />
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button
+            className="btn primary"
+            disabled={!name.trim()}
+            onClick={() => {
+              update(
+                (st) => ({
+                  ...st,
+                  guests: st.guests.map((x) =>
+                    x.id === g.id
+                      ? { ...x, name: name.trim(), group: group.trim() || undefined, diet, accessibility: access }
+                      : x
+                  ),
+                }),
+                { actor: 'human', describe: `updated ${name.trim()}` }
+              )
+              onClose()
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GuestChip({ guest, tableLabel, onEdit }: { guest: Guest; tableLabel?: string; onEdit?: (id: string) => void }) {
   const s = useApp()
   const relations = relationNotes(s, guest.id)
   return (
@@ -441,6 +516,7 @@ function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string })
       className={`chip ${guest.accessibility ? 'access' : ''} ${tableLabel ? 'seated-chip' : ''}`}
       style={tableLabel ? undefined : ({ viewTransitionName: `g${guest.id}` } as React.CSSProperties)}
       draggable
+      onDoubleClick={() => onEdit?.(guest.id)}
       onDragStart={(e) => e.dataTransfer.setData('text/guest-id', guest.id)}
       title={[
         guest.group,
@@ -850,15 +926,103 @@ function Board() {
         </div>
       )}
     </div>
-    {s.tables.length > 0 && (
+    {(s.tables.length > 0 || s.guests.length > 0) && (
       <div className="zoom-controls">
+        <button
+          className="btn add-table"
+          title="Add a table to the floor plan"
+          onClick={() => {
+            const el = ref.current
+            const x = el ? (el.scrollLeft + el.clientWidth / 2) / zoom : 500
+            const y = el ? (el.scrollTop + el.clientHeight / 2) / zoom : 350
+            const id = uid('t')
+            const label = `${vocab(s).container} ${s.tables.length + 1}`
+            update(
+              (st) => ({
+                ...st,
+                tables: [...st.tables, { id, label, shape: 'round' as const, capacity: 8, x, y }],
+                selection: { type: 'table', id },
+              }),
+              { actor: 'human', describe: `added ${label}` }
+            )
+            announce(`${label} added — drag it anywhere, edit it in the panel below.`)
+          }}
+        >
+          <IcPlus /> {vocab(s).container}
+        </button>
         <button className="btn icon-btn" title="Zoom in" onClick={() => setZoom((z) => Math.min(1.6, +(z + 0.15).toFixed(2)))}><IcPlus /></button>
         <button className="btn icon-btn" title="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.15).toFixed(2)))}><IcMinus /></button>
         <button className="btn icon-btn" title="Fit the whole room in view" onClick={fit}><IcFit /></button>
       </div>
     )}
+    <TableInspector />
     <ConflictDock />
     <ProposalBanner />
+    </div>
+  )
+}
+
+function TableInspector() {
+  const s = useApp()
+  const t = s.selection?.type === 'table' ? s.tables.find((x) => x.id === s.selection!.id) : null
+  if (!t) return null
+  const patch = (p: Partial<Table>, describe?: string) =>
+    update(
+      (st) => ({ ...st, tables: st.tables.map((x) => (x.id === t.id ? { ...x, ...p } : x)) }),
+      describe ? { actor: 'human', describe } : { undoable: false }
+    )
+  return (
+    <div className="inspector">
+      <input
+        className="insp-label"
+        value={t.label}
+        onChange={(e) => patch({ label: e.target.value })}
+        title="Rename this table"
+      />
+      <span className="insp-group">
+        <button
+          className="btn icon-btn"
+          title="Fewer seats"
+          onClick={() => patch({ capacity: Math.max(1, t.capacity - 1) }, `set ${t.label} to ${Math.max(1, t.capacity - 1)} seats`)}
+        >
+          <IcMinus />
+        </button>
+        <span className="insp-cap">{t.capacity} seats</span>
+        <button
+          className="btn icon-btn"
+          title="More seats"
+          onClick={() => patch({ capacity: Math.min(16, t.capacity + 1) }, `set ${t.label} to ${Math.min(16, t.capacity + 1)} seats`)}
+        >
+          <IcPlus />
+        </button>
+      </span>
+      <button
+        className={`btn insp-access ${t.accessible ? 'on' : ''}`}
+        title="Toggle wheelchair-accessible"
+        onClick={() => patch({ accessible: !t.accessible }, `${t.accessible ? 'unmarked' : 'marked'} ${t.label} as accessible`)}
+      >
+        ♿
+      </button>
+      <button
+        className="btn insp-del"
+        title="Remove this table (guests return to the pool)"
+        onClick={() => {
+          if (!confirm(`Remove ${t.label}? Anyone seated there goes back to the pool.`)) return
+          const displaced = guestsAt(s, t.id).length
+          update(
+            (st) => ({
+              ...st,
+              tables: st.tables.filter((x) => x.id !== t.id),
+              guests: st.guests.map((g) => (g.tableId === t.id ? { ...g, tableId: null, pinned: false } : g)),
+              selection: null,
+            }),
+            { actor: 'human', describe: `removed ${t.label}${displaced ? ` (${displaced} back to the pool)` : ''}` }
+          )
+          announce(`${t.label} removed${displaced ? ` — ${displaced} guest${displaced === 1 ? '' : 's'} back in the pool.` : '.'}`)
+        }}
+      >
+        <IcClose /> Remove
+      </button>
     </div>
   )
 }

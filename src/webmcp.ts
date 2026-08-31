@@ -353,6 +353,91 @@ export function registerBaseTools() {
       },
     },
     {
+      name: 'remove_guest',
+      description:
+        'Remove a guest from the event entirely (their constraints are cleaned up too). Refused for guests the human pinned — ask them or unpin first.',
+      inputSchema: { type: 'object', properties: { guest: { type: 'string' } }, required: ['guest'] },
+      execute: async (input: { guest: string }) => {
+        const s = getState()
+        const g = findGuestByName(s, input.guest)
+        if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        if (g.pinned) return j({ error: `${g.name} is pinned by the human (📌). Ask them, or use set_pin to unpin first.` })
+        update(
+          (st) => ({
+            ...st,
+            guests: st.guests.filter((x) => x.id !== g.id),
+            constraints: st.constraints.filter((c) => c.a !== g.id && c.b !== g.id),
+          }),
+          { actor: 'agent', describe: `removed guest ${g.name}` }
+        )
+        agentActsAtTable(g.tableId, `− ${g.name}`)
+        return j({ ok: true, remaining_guests: getState().guests.length })
+      },
+    },
+    {
+      name: 'update_guest',
+      description:
+        "Edit a guest's details: name, group, diet, or accessibility need. Does not move them.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          guest: { type: 'string', description: 'Current name to match.' },
+          name: { type: 'string' },
+          group: { type: 'string' },
+          diet: { type: 'string', enum: DIETS },
+          accessibility: { type: 'boolean' },
+        },
+        required: ['guest'],
+      },
+      execute: async (input: { guest: string; name?: string; group?: string; diet?: string; accessibility?: boolean }) => {
+        const s = getState()
+        const g = findGuestByName(s, input.guest)
+        if (!g) return j({ error: `No guest matching "${input.guest}"` })
+        update(
+          (st) => ({
+            ...st,
+            guests: st.guests.map((x) =>
+              x.id === g.id
+                ? {
+                    ...x,
+                    name: input.name?.trim() || x.name,
+                    group: input.group !== undefined ? input.group.trim() || undefined : x.group,
+                    diet: (DIETS.includes(input.diet as Diet) ? input.diet : x.diet) as Diet,
+                    accessibility: input.accessibility ?? x.accessibility,
+                  }
+                : x
+            ),
+          }),
+          { actor: 'agent', describe: `updated ${g.name}` }
+        )
+        agentActsAtTable(g.tableId, `✎ ${input.name ?? g.name}`)
+        return j({ ok: true, violations_now: conflicts(getState()).map((c) => c.message) })
+      },
+    },
+    {
+      name: 'remove_table',
+      description:
+        'Remove a table from the floor plan. Anyone seated there returns to the unassigned pool (their pins are released, since the human\'s chosen table no longer exists — mention this to them).',
+      inputSchema: { type: 'object', properties: { table: { type: 'string' } }, required: ['table'] },
+      execute: async (input: { table: string }) => {
+        const s = getState()
+        const t = findTable(s, input.table)
+        if (!t) return j({ error: `No table matching "${input.table}"` })
+        const displaced = guestsAt(s, t.id).map((g) => g.name)
+        update(
+          (st) => ({
+            ...st,
+            tables: st.tables.filter((x) => x.id !== t.id),
+            guests: st.guests.map((g) => (g.tableId === t.id ? { ...g, tableId: null, pinned: false } : g)),
+            selection: st.selection?.type === 'table' && st.selection.id === t.id ? null : st.selection,
+          }),
+          { actor: 'agent', describe: `removed ${t.label}${displaced.length ? ` (${displaced.length} guests back to the pool)` : ''}` }
+        )
+        agentActsAtCenter(`− ${t.label}`)
+        return j({ ok: true, unseated: displaced, remaining_tables: getState().tables.length })
+      },
+    },
+    {
       name: 'seat_guest',
       description:
         'Seat a guest at a table (or move them there). Reference the guest by name and the table by label. Reports any conflicts this creates.',

@@ -52,9 +52,9 @@ five scenarios: wedding, gala, corporate networking dinner, office seating, clas
 
 ## How we implemented WebMCP
 
-- 18 base tools registered with `document.modelContext.registerTool` (guest/table CRUD,
+- 21 base tools registered with `document.modelContext.registerTool` (guest/table CRUD,
   pair constraints with notes, group rules, solver, proposals, pins, dietary reports,
-  markdown export, template loading, undo, `explain_seating` — the solver justifies any
+  markdown export, template loading, undo, full guest/table CRUD (`remove_guest`, `update_guest`, `remove_table`), `explain_seating` — the solver justifies any
   placement on request — and `get_activity_log`, so a returning agent can catch up on
   what the human did in the meantime).
 - 4 dynamic, selection-scoped tools registered/unregistered with `AbortController` as

@@ -44,7 +44,7 @@ tracking, solving, and reporting go to the agent.
 
 ## How tools are registered
 
-All 20 tools go through the standard WebMCP API ([src/webmcp.ts](src/webmcp.ts)):
+All 25 tools go through the standard WebMCP API ([src/webmcp.ts](src/webmcp.ts)):
 
 ```js
 document.modelContext.registerTool({
@@ -117,7 +117,7 @@ synthesized sound design (mutable).
 
 ## Implementation notes
 
-- `src/webmcp.ts` — all tool registration (18 base + 4 selection-scoped). Base toolset registers once;
+- `src/webmcp.ts` — all tool registration (21 base + 4 selection-scoped). Base toolset registers once;
   selection-scoped tools register/unregister with `AbortController` as the human
   clicks around. Pinned guests are enforced at the tool layer, not just the solver.
 - `src/solver.ts` — dependency-free seating solver: greedy seeding + local search +
