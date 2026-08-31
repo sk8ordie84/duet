@@ -27,8 +27,12 @@ enforced powers:
   tools (`seat_at_selected_table`, `clear_selected_table`, …) via `AbortSignal` —
   deselect, and they're gone. The agent always knows what you're looking at.
 - **Everything is visible and reversible.** Agent actions animate as a violet cursor
-  on the board, land in the activity feed labeled `✳ agent`, and `undo` works on both
-  sides.
+  on the board, land in the activity feed labeled `✳ agent`, and undo/redo (⌘Z/⌘⇧Z)
+  works on both sides' actions.
+- **The solver explains itself.** `explain_seating` answers "why is Grandpa Joe
+  there?" with the actual binding reasons — together requests, feuds avoided, group
+  rules, accessibility, pins. And `get_activity_log` lets the agent catch up on what
+  the human did while it was away.
 
 ## Why this is a strong fit for WebMCP
 
@@ -105,9 +109,15 @@ npm install
 npm run dev
 ```
 
+Rounding out the product: paste-import for guest lists, per-group placement rules
+(keep together / mix across tables), a relationships panel with notes ("divorced in
+2019"), printable place cards + escort list + catering brief (🖨), zoom/fit-to-view,
+conflict notes that shake and pan the room when trouble appears, and a touch of
+synthesized sound design (mutable).
+
 ## Implementation notes
 
-- `src/webmcp.ts` — all tool registration (16 tools). Base toolset registers once;
+- `src/webmcp.ts` — all tool registration (18 base + 4 selection-scoped). Base toolset registers once;
   selection-scoped tools register/unregister with `AbortController` as the human
   clicks around. Pinned guests are enforced at the tool layer, not just the solver.
 - `src/solver.ts` — dependency-free seating solver: greedy seeding + local search +

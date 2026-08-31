@@ -4,6 +4,7 @@ import {
   subscribe,
   update,
   undo,
+  redo,
   guestsAt,
   conflicts,
   vocab,
@@ -17,6 +18,7 @@ import {
 } from './model'
 import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown, computeArrangement } from './webmcp'
 import { TEMPLATES, loadTemplate } from './templates'
+import { sound, soundMuted, setSoundMuted } from './sound'
 import './App.css'
 
 function useApp() {
@@ -83,8 +85,19 @@ export default function App() {
       if (toastTimer.current) clearTimeout(toastTimer.current)
       toastTimer.current = setTimeout(() => setToast(null), 3200)
     }
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
     return () => {
       announce = () => {}
+      window.removeEventListener('keydown', onKey)
     }
   }, [])
 
@@ -108,7 +121,19 @@ export default function App() {
           <span className={`mcp-badge ${mcp ? 'on' : 'off'}`}>
             {mcp ? '● agent connected via WebMCP' : '○ WebMCP not available'}
           </span>
-          <button className="btn" onClick={() => undo()}>↩ Undo</button>
+          <button className="btn" title="Undo (⌘Z)" onClick={() => undo()}>↩</button>
+          <button className="btn" title="Redo (⌘⇧Z)" onClick={() => redo()}>↪</button>
+          <button
+            className="btn"
+            title={soundMuted() ? 'Sound is off' : 'Sound is on'}
+            onClick={(e) => {
+              setSoundMuted(!soundMuted())
+              ;(e.target as HTMLElement).textContent = soundMuted() ? '🔇' : '🔊'
+              if (!soundMuted()) sound.tick()
+            }}
+          >
+            {soundMuted() ? '🔇' : '🔊'}
+          </button>
           {s.guests.length > 0 && s.tables.length > 0 && (
             <button
               className="btn primary"
@@ -128,6 +153,7 @@ export default function App() {
                     { actor: 'human', describe: `arranged the room (${moves} moves)` }
                   )
                 )
+                sound.success()
                 announce(
                   remaining.length === 0
                     ? `Arranged — ${moves} moves, no conflicts. Now drag anyone anywhere: Duet flags trouble the moment it appears.`
@@ -150,6 +176,9 @@ export default function App() {
                 }}
               >
                 ⇪ Export
+              </button>
+              <button className="btn" title="Print place cards & the seating plan" onClick={() => window.print()}>
+                🖨
               </button>
               <button
                 className="btn"
@@ -181,6 +210,70 @@ export default function App() {
         <HelpButton mcp={mcp} />
         {toast && <div className="toast">{toast}</div>}
       </div>
+      <PrintSheet />
+    </div>
+  )
+}
+
+// ---------------- Print sheet (visible only when printing) ----------------
+
+function PrintSheet() {
+  const s = useApp()
+  if (s.guests.length === 0) return null
+  const seatedTables = s.tables.map((t) => ({ table: t, guests: guestsAt(s, t.id) }))
+  const escort = [...s.guests]
+    .filter((g) => g.tableId != null)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const diets = s.guests.filter((g) => g.diet !== 'none')
+  return (
+    <div className="print-sheet">
+      <h1>{s.event.name}</h1>
+      <p className="print-sub">Seating plan — {s.guests.length} guests, {s.tables.length} tables</p>
+
+      <h2>Find your seat</h2>
+      <div className="print-escort">
+        {escort.map((g) => (
+          <div key={g.id} className="print-escort-row">
+            <span>{g.name}</span>
+            <span className="print-dots" />
+            <span>{s.tables.find((t) => t.id === g.tableId)?.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <h2>Tables</h2>
+      <div className="print-tables">
+        {seatedTables.map(({ table, guests }) => (
+          <div key={table.id} className="print-table">
+            <h3>
+              {table.label} <small>({guests.length}/{table.capacity}{table.accessible ? ' · accessible' : ''})</small>
+            </h3>
+            <ul>
+              {guests.map((g) => (
+                <li key={g.id}>
+                  {g.name}
+                  {g.diet !== 'none' ? ` — ${g.diet}` : ''}
+                  {g.accessibility ? ' — accessible seat' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {diets.length > 0 && (
+        <>
+          <h2>Catering notes</h2>
+          <ul className="print-diets">
+            {diets.map((g) => (
+              <li key={g.id}>
+                {g.name}: {g.diet} ({s.tables.find((t) => t.id === g.tableId)?.label ?? 'unseated'})
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p className="print-foot">Made with Duet — plan the room with your agent · duet-ten.vercel.app</p>
     </div>
   )
 }
@@ -632,6 +725,7 @@ function Board() {
         panTo(el, t.x * zoom - el.clientWidth / 2, t.y * zoom - el.clientHeight / 2)
       }
       setShakeId(hit.tableId!)
+      sound.conflict()
     }, 640)
     const timer = setTimeout(() => setShakeId(null), 1900)
     return () => {
@@ -777,7 +871,7 @@ function ProposalBanner() {
         <button className="btn" onClick={() => setOpenList(!openList)}>
           {openList ? 'Hide' : 'Review'}
         </button>
-        <button className="btn primary" onClick={() => applyProposal('human')}>Accept</button>
+        <button className="btn primary" onClick={() => { sound.success(); applyProposal('human') }}>Accept</button>
         <button className="btn" onClick={() => dismissProposal('human')}>Dismiss</button>
       </div>
       {openList && (
@@ -936,6 +1030,7 @@ function TableView({
             }}
             onDoubleClick={(e) => {
               e.stopPropagation()
+              sound.tick()
               const g = seat.guest!
               update(
                 (st) => ({ ...st, guests: st.guests.map((x) => (x.id === g.id ? { ...x, pinned: !g.pinned } : x)) }),

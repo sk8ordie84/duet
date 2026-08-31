@@ -184,6 +184,7 @@ function persist(s: AppState) {
 let state: AppState = load()
 
 const undoStack: AppState[] = []
+const redoStack: AppState[] = []
 const MAX_UNDO = 100
 
 export function getState(): AppState {
@@ -207,6 +208,7 @@ export function update(
   if (opts?.undoable !== false) {
     undoStack.push(state)
     if (undoStack.length > MAX_UNDO) undoStack.shift()
+    redoStack.length = 0
   }
   state = mutator(state)
   if (opts?.describe) {
@@ -225,7 +227,18 @@ export function update(
 export function undo(): boolean {
   const prev = undoStack.pop()
   if (!prev) return false
+  redoStack.push(state)
   state = { ...prev, log: state.log, agentFocus: null }
+  persist(state)
+  emit()
+  return true
+}
+
+export function redo(): boolean {
+  const next = redoStack.pop()
+  if (!next) return false
+  undoStack.push(state)
+  state = { ...next, log: state.log, agentFocus: null }
   persist(state)
   emit()
   return true

@@ -123,6 +123,53 @@ export function computeArrangement(respectCurrent: boolean) {
   return { seats, moves, movesList, remaining }
 }
 
+/** Explain WHY a guest sits where they sit — the solver's reasoning, reconstructed. */
+function explainGuest(s: AppState, g: (typeof s.guests)[number]): string[] {
+  const reasons: string[] = []
+  const t = s.tables.find((t) => t.id === g.tableId)
+  if (g.pinned) reasons.push('placed and pinned by the human 📌 — the solver plans around them')
+  if (!t) {
+    reasons.push('currently unseated (in the pool)')
+    return reasons
+  }
+  const tableOf = (id: string) => s.tables.find((x) => x.id === s.guests.find((gg) => gg.id === id)?.tableId)
+  for (const c of s.constraints) {
+    if (c.a !== g.id && c.b !== g.id) continue
+    const otherId = c.a === g.id ? c.b : c.a
+    const other = s.guests.find((gg) => gg.id === otherId)
+    if (!other) continue
+    const same = other.tableId === g.tableId
+    const note = c.note ? ` (${c.note})` : ''
+    if (c.kind === 'together') {
+      reasons.push(
+        same
+          ? `sits with ${other.name} — "together" request satisfied${note}`
+          : `"together" with ${other.name} NOT satisfied — they are at ${tableOf(otherId)?.label ?? 'the pool'}${note}`
+      )
+    } else {
+      reasons.push(
+        same
+          ? `⚠ VIOLATES the keep-apart rule with ${other.name}${note}`
+          : `kept away from ${other.name}${note}`
+      )
+    }
+  }
+  if (g.group) {
+    const mates = s.guests.filter((x) => x.id !== g.id && x.group === g.group && x.tableId === g.tableId).length
+    const rule = s.groupRules.find((r) => r.group === g.group)
+    if (rule?.mode === 'spread') {
+      reasons.push(`"${g.group}" is spread for mixing (max ${rule.maxPerTable ?? 2}/table) — ${mates + 1} here`)
+    } else if (mates > 0) {
+      reasons.push(`seated with ${mates} other${mates === 1 ? '' : 's'} from "${g.group}"${rule?.mode === 'cluster' ? ' (keep-together rule)' : ''}`)
+    }
+  }
+  if (g.accessibility) {
+    reasons.push(t.accessible ? `${t.label} is accessible ♿ as they need` : `⚠ needs accessible seating but ${t.label} is not accessible`)
+  }
+  reasons.push(`${t.label} is at ${guestsAt(s, t.id).length}/${t.capacity} capacity`)
+  return reasons
+}
+
 function describeMoves(moves: ProposedMove[]): string[] {
   const s = getState()
   const tname = (id: string | null) => (id ? s.tables.find((t) => t.id === id)?.label ?? '?' : 'unassigned')
@@ -538,6 +585,57 @@ export function registerBaseTools() {
         if (!name) return j({ error: `Unknown template "${input.template}"` })
         agentActsAtCenter('loaded template')
         return j({ ok: true, event: name, plan: planSummary(getState()) })
+      },
+    },
+    {
+      name: 'explain_seating',
+      description:
+        'Explain WHY someone sits where they sit: which together/apart requests, group rules, accessibility needs, and pins shaped their placement. Pass a guest name, or a table label to explain everyone at that table. Use this when the human asks "why is X there?" or before proposing changes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          guest: { type: 'string', description: 'Guest name (optional if table is given).' },
+          table: { type: 'string', description: 'Table label — explains every guest seated there.' },
+        },
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (input: { guest?: string; table?: string }) => {
+        const s = getState()
+        if (input.guest) {
+          const g = findGuestByName(s, input.guest)
+          if (!g) return j({ error: `No guest matching "${input.guest}"` })
+          return j({ guest: g.name, table: s.tables.find((t) => t.id === g.tableId)?.label ?? null, reasons: explainGuest(s, g) })
+        }
+        if (input.table) {
+          const t = findTable(s, input.table)
+          if (!t) return j({ error: `No table matching "${input.table}"` })
+          return j({
+            table: t.label,
+            guests: guestsAt(s, t.id).map((g) => ({ guest: g.name, reasons: explainGuest(s, g) })),
+          })
+        }
+        return j({ error: 'Pass a guest name or a table label.' })
+      },
+    },
+    {
+      name: 'get_activity_log',
+      description:
+        'Read the recent activity feed — every change made by the human (drags, pins, rules, accepts) and by you. Call this when returning to the conversation to catch up on what the human did in the meantime.',
+      inputSchema: {
+        type: 'object',
+        properties: { limit: { type: 'number', description: 'Max entries, default 25.' } },
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (input: { limit?: number }) => {
+        const s = getState()
+        const now = Date.now()
+        return j(
+          s.log.slice(0, Math.max(1, Math.min(100, input.limit ?? 25))).map((l) => ({
+            actor: l.actor,
+            action: l.text,
+            seconds_ago: Math.round((now - l.at) / 1000),
+          }))
+        )
       },
     },
     {

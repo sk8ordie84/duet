@@ -725,3 +725,36 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ================= print ================= */
+
+.print-sheet { display: none; }
+
+@media print {
+  .app > .topbar, .app > .main, .app::after { display: none !important; }
+  body { background: #fff; color: #111; }
+  .print-sheet {
+    display: block;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #111; padding: 8mm 4mm;
+  }
+  .print-sheet h1 { font-size: 22pt; margin: 0 0 2pt; font-style: italic; font-weight: 600; }
+  .print-sub { margin: 0 0 14pt; font-size: 10pt; color: #555; }
+  .print-sheet h2 {
+    font-size: 13pt; margin: 14pt 0 8pt; padding-bottom: 3pt;
+    border-bottom: 1pt solid #999; letter-spacing: 0.5pt;
+  }
+  .print-escort { column-count: 3; column-gap: 8mm; font-size: 9.5pt; }
+  .print-escort-row {
+    display: flex; align-items: baseline; gap: 4pt;
+    break-inside: avoid; padding: 1.5pt 0;
+  }
+  .print-dots { flex: 1; border-bottom: 1px dotted #999; }
+  .print-tables { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; }
+  .print-table { break-inside: avoid; border: 1pt solid #bbb; border-radius: 4pt; padding: 6pt 9pt; }
+  .print-table h3 { margin: 0 0 4pt; font-size: 11pt; }
+  .print-table h3 small { font-weight: 400; color: #555; font-size: 8.5pt; }
+  .print-table ul { margin: 0; padding-left: 12pt; font-size: 9.5pt; line-height: 1.45; }
+  .print-diets { column-count: 2; font-size: 9.5pt; margin: 0; padding-left: 12pt; }
+  .print-foot { margin-top: 16pt; font-size: 8pt; color: #777; text-align: center; }
+}
