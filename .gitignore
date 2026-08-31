@@ -23,3 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+video/raw/
+video/*.mp4
