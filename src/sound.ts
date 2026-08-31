@@ -2,9 +2,10 @@
 // Muted state persists; audio context starts lazily on first user gesture.
 
 let ctx: AudioContext | null = null
-let muted = false
+// silent by default — sound is opt-in via the topbar toggle
+let muted = true
 try {
-  muted = localStorage.getItem('duet-sound') === 'off'
+  muted = localStorage.getItem('duet-sound') !== 'on'
 } catch {
   /* storage unavailable */
 }
