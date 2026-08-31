@@ -19,6 +19,10 @@ import {
 import { registerBaseTools, syncSelectionTools, webmcpAvailable, exportMarkdown, computeArrangement } from './webmcp'
 import { TEMPLATES, loadTemplate } from './templates'
 import { sound, soundMuted, setSoundMuted } from './sound'
+import {
+  IcUndo, IcRedo, IcSoundOn, IcSoundOff, IcPrint, IcExport, IcReset, IcPlus, IcMinus, IcFit,
+  IcSparkle, IcPin, IcClose, IcCaretDown, IcCaretRight, IcWarn,
+} from './icons'
 import './App.css'
 
 function useApp() {
@@ -75,6 +79,7 @@ export default function App() {
   const s = useApp()
   const [mcp] = useState(() => webmcpAvailable())
   const [sideOpen, setSideOpen] = useState(false)
+  const [mutedUi, setMutedUi] = useState(() => soundMuted())
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -118,22 +123,24 @@ export default function App() {
           onChange={(e) => update((st) => ({ ...st, event: { ...st.event, name: e.target.value } }), { undoable: false })}
         />
         <div className="topbar-right">
-          <span className={`mcp-badge ${mcp ? 'on' : 'off'}`}>
-            {mcp ? '● agent connected via WebMCP' : '○ WebMCP not available'}
+          <span className={`mcp-badge ${mcp ? 'on' : 'off'}`} title={mcp ? 'This page exposes WebMCP tools to your agent' : 'Open in ChatGPT’s browser or Chrome with WebMCP enabled'}>
+            {mcp ? 'Agent connected' : 'No agent detected'}
           </span>
-          <button className="btn" title="Undo (⌘Z)" onClick={() => undo()}>↩</button>
-          <button className="btn" title="Redo (⌘⇧Z)" onClick={() => redo()}>↪</button>
+          <span className="tb-sep" />
+          <button className="btn icon-btn" title="Undo (⌘Z)" onClick={() => undo()}><IcUndo /></button>
+          <button className="btn icon-btn" title="Redo (⌘⇧Z)" onClick={() => redo()}><IcRedo /></button>
           <button
-            className="btn"
-            title={soundMuted() ? 'Sound is off' : 'Sound is on'}
-            onClick={(e) => {
+            className="btn icon-btn"
+            title={mutedUi ? 'Sound is off' : 'Sound is on'}
+            onClick={() => {
               setSoundMuted(!soundMuted())
-              ;(e.target as HTMLElement).textContent = soundMuted() ? '🔇' : '🔊'
+              setMutedUi(soundMuted())
               if (!soundMuted()) sound.tick()
             }}
           >
-            {soundMuted() ? '🔇' : '🔊'}
+            {mutedUi ? <IcSoundOff /> : <IcSoundOn />}
           </button>
+          <span className="tb-sep" />
           {s.guests.length > 0 && s.tables.length > 0 && (
             <button
               className="btn primary"
@@ -161,7 +168,7 @@ export default function App() {
                 )
               }}
             >
-              ✨ Arrange
+              <IcSparkle /> Arrange
             </button>
           )}
           {s.guests.length > 0 && (
@@ -175,10 +182,10 @@ export default function App() {
                   )
                 }}
               >
-                ⇪ Export
+                <IcExport /> <span className="btn-label">Export</span>
               </button>
-              <button className="btn" title="Print place cards & the seating plan" onClick={() => window.print()}>
-                🖨
+              <button className="btn icon-btn" title="Print place cards & the seating plan" onClick={() => window.print()}>
+                <IcPrint />
               </button>
               <button
                 className="btn"
@@ -192,7 +199,7 @@ export default function App() {
                   }
                 }}
               >
-                Reset
+                <IcReset /> <span className="btn-label">Reset</span>
               </button>
             </>
           )}
@@ -446,7 +453,7 @@ function GuestChip({ guest, tableLabel }: { guest: Guest; tableLabel?: string })
       {guest.name}
       {guest.diet !== 'none' && <span className="diet">{DIET_ICON[guest.diet] ?? ''}</span>}
       {guest.accessibility && <span className="diet">♿</span>}
-      {guest.pinned && <span className="diet">📌</span>}
+      {guest.pinned && <span className="diet pin-mark"><IcPin /></span>}
       {relations.length > 0 && <span className="diet rel">{relations.some((r) => r.startsWith('⚡')) ? '⚡' : '❤'}</span>}
       {tableLabel && <span className="chip-table">{tableLabel}</span>}
     </div>
@@ -546,9 +553,9 @@ function ConflictDock() {
   return (
     <div className="conflict-dock">
       <button className="dock-head" onClick={() => setOpen(!open)}>
-        <span className="dock-flame">⚠</span>
+        <span className="dock-flame"><IcWarn /></span>
         <strong key={list.length} className="dock-count">{list.length} to resolve</strong>
-        <span className="dock-caret">{open ? '▾' : '▸'}</span>
+        <span className="dock-caret">{open ? <IcCaretDown /> : <IcCaretRight />}</span>
       </button>
       {open && (
         <div className="dock-list">
@@ -604,7 +611,7 @@ function RelationshipsPanel() {
                 )
               }
             >
-              ✕
+              <IcClose />
             </button>
           </div>
         ))}
@@ -672,7 +679,7 @@ function Legend() {
       <span>🕌 halal</span>
       <span>✡️ kosher</span>
       <span>♿ accessible</span>
-      <span>📌 pinned by you</span>
+      <span className="legend-pin"><IcPin /> pinned by you</span>
       <span>⚡ feud</span>
       <span>❤ sit together</span>
     </div>
@@ -689,7 +696,11 @@ function ActivityFeed() {
       <div className="feed">
         {s.log.map((l) => (
           <div key={l.id} className={`log ${l.actor}`}>
-            <span className="who">{l.actor === 'agent' ? '✳ agent' : '● you'}</span> {l.text}
+            <span className="who">{l.actor === 'agent' ? '✳ agent' : '● you'}</span>
+            <span className="log-text">{l.text}</span>
+            <span className="log-time">
+              {new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
           </div>
         ))}
         {s.log.length === 0 && <div className="empty">Actions by you and your agent appear here.</div>}
@@ -756,7 +767,7 @@ function Board() {
     const key = `${s.event.template ?? ''}:${s.tables.length}`
     if (key !== lastFitKey.current) {
       lastFitKey.current = key
-      if (s.tables.length > 0) requestAnimationFrame(() => fit())
+      if (s.tables.length > 0) setTimeout(() => fit(), 30)
     }
   })
 
@@ -772,10 +783,10 @@ function Board() {
     const h = Math.max(...ys) - minY + pad * 2
     const z = Math.min(el.clientWidth / w, el.clientHeight / h, 1)
     setZoom(z)
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       el.scrollLeft = minX * z
       el.scrollTop = minY * z
-    })
+    }, 40)
   }
 
   return (
@@ -799,7 +810,7 @@ function Board() {
       }}
     >
       <div
-        className="board-inner"
+        className={`board-inner ${zoom < 0.8 ? 'compact' : ''}`}
         style={{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: extent.w, height: extent.h }}
       >
       {s.tables.map((t, i) => (
@@ -821,6 +832,7 @@ function Board() {
       {s.tables.length === 0 && (
         <div className="board-empty">
           <p className="empty-title">What are we arranging today?</p>
+          <p className="empty-sub">You make the calls. Your agent does the labor — live, on this board.</p>
           <div className="template-grid">
             {TEMPLATES.map((t) => (
               <button
@@ -843,9 +855,9 @@ function Board() {
     </div>
     {s.tables.length > 0 && (
       <div className="zoom-controls">
-        <button className="btn" onClick={() => setZoom((z) => Math.min(1.6, +(z + 0.15).toFixed(2)))}>+</button>
-        <button className="btn" onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.15).toFixed(2)))}>−</button>
-        <button className="btn" onClick={fit} title="Fit the whole room in view">⤢</button>
+        <button className="btn icon-btn" title="Zoom in" onClick={() => setZoom((z) => Math.min(1.6, +(z + 0.15).toFixed(2)))}><IcPlus /></button>
+        <button className="btn icon-btn" title="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.15).toFixed(2)))}><IcMinus /></button>
+        <button className="btn icon-btn" title="Fit the whole room in view" onClick={fit}><IcFit /></button>
       </div>
     )}
     <ConflictDock />
@@ -860,19 +872,25 @@ function ProposalBanner() {
   if (!s.proposal) return null
   const p = s.proposal
   const tname = (id: string | null) => (id ? s.tables.find((t) => t.id === id)?.label ?? '?' : 'unassigned')
+  const tablesTouched = new Set(p.moves.flatMap((m) => [m.from, m.to]).filter(Boolean)).size
   return (
     <div className="proposal">
-      <div className="proposal-row">
+      <div className="proposal-head">
         <span className="proposal-mark">✳</span>
+        <span className="proposal-kicker">Agent proposal</span>
+        <span className="proposal-meta">
+          {p.moves.length} move{p.moves.length === 1 ? '' : 's'} · {tablesTouched} table{tablesTouched === 1 ? '' : 's'} · reversible
+        </span>
+      </div>
+      <div className="proposal-row">
         <div className="proposal-text">
-          <strong>Your agent proposes {p.moves.length} moves</strong>
           <span className="proposal-note">{p.note}</span>
         </div>
         <button className="btn" onClick={() => setOpenList(!openList)}>
           {openList ? 'Hide' : 'Review'}
         </button>
-        <button className="btn primary" onClick={() => { sound.success(); applyProposal('human') }}>Accept</button>
         <button className="btn" onClick={() => dismissProposal('human')}>Dismiss</button>
+        <button className="btn primary" onClick={() => { sound.success(); applyProposal('human') }}>Accept</button>
       </div>
       {openList && (
         <ul className="proposal-moves">
@@ -952,7 +970,7 @@ function TableView({
   return (
     <div
       className={`table round ${selected ? 'selected' : ''} ${cfHere ? 'has-conflict' : ''} ${shaking ? 'shake' : ''}`}
-      style={{ left: table.x, top: table.y, animationDelay: `${Math.min(index * 45, 700)}ms` }}
+      style={{ left: table.x, top: table.y, animationDelay: `${Math.min(index * 26, 340)}ms` }}
       onClick={(e) => {
         e.stopPropagation()
         update((st) => ({ ...st, selection: { type: 'table', id: table.id } }), { undoable: false })
@@ -1041,7 +1059,7 @@ function TableView({
             {initials(seat.guest.name)}
             {seat.guest.diet !== 'none' && <span className="seat-badge">{DIET_ICON[seat.guest.diet] ?? ''}</span>}
             {seat.guest.accessibility && <span className="seat-badge low">♿</span>}
-            {seat.guest.pinned && <span className="seat-badge pin">📌</span>}
+            {seat.guest.pinned && <span className="seat-badge pin"><IcPin /></span>}
             <span className="seat-name">{shortName(seat.guest.name)}</span>
           </div>
         ) : (
