@@ -18,6 +18,29 @@ const ctx = await browser.newContext({
   viewport: { width: 1920, height: 1080 },
   recordVideo: { dir: OUT, size: { width: 1920, height: 1080 } },
 })
+// The recording harness IS the agent host: provide document.modelContext before
+// the app boots, so tools register against it and the badge reads "Agent connected".
+await ctx.addInitScript(() => {
+  const tools = new Map()
+  Object.defineProperty(document, 'modelContext', {
+    value: {
+      registerTool(tool, options) {
+        tools.set(tool.name, tool)
+        options?.signal?.addEventListener('abort', () => tools.delete(tool.name))
+      },
+    },
+    configurable: true,
+  })
+  window.__webmcp = {
+    list: () => [...tools.keys()],
+    call: async (name, input = {}) => {
+      const t = tools.get(name)
+      if (!t) throw new Error('no tool ' + name)
+      return await t.execute(input, {})
+    },
+  }
+})
+
 const page = await ctx.newPage()
 await page.goto(URL, { waitUntil: 'networkidle' })
 await page.evaluate(() => sessionStorage.clear())
