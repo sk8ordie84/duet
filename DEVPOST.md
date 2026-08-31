@@ -9,67 +9,39 @@
 
 ## Why this use case is a strong fit for WebMCP
 
-Seating a room is a two-brain problem. One brain holds things no app field can capture —
-who is divorced, which sponsor is suing whom, which aunt must be near the exit. The other
-brain has to satisfy a combinatorial pile: capacities, feuds, "please introduce these
-two", dietary needs, accessibility, company-mixing policies, table balance. Humans are
-great at the first and terrible at the second; agents are the opposite.
+Seating a room is a two-brain problem.
 
-Before WebMCP, an agent couldn't help here: a drag-and-drop floor plan is the worst
-possible surface for pixel-driving, and moving the work to a chat thread throws away the
-human's visual judgment. WebMCP lets both sides work the surface they're best at — the
-human drags and eyeballs the actual room, the agent calls `seat_guest`,
-`add_constraint`, `set_group_rule`, and a real constraint solver — on the same live
-state, in the same tab.
+One brain holds context no form can capture: who is divorced, which sponsor is feuding with whom, which aunt needs to sit near the exit. The other has to satisfy a combinatorial pile of constraints: table capacities, conflicts, introductions, dietary needs, accessibility, company-mixing rules, and table balance.
+
+Humans are great at the first and bad at the second. Agents are the opposite.
+
+Before WebMCP, neither interface worked well. A drag-and-drop floor plan is a terrible surface for an agent to operate through pixels, while moving the task into chat throws away the human's spatial judgment.
+
+Duet lets both work on the same live state, in the same tab: the human drags, pins, and visually evaluates the room while the agent uses structured tools such as `seat_guest`, `add_constraint`, `set_group_rule`, and a real constraint solver.
 
 ## How it creates a better user experience
 
-Duet gives the collaboration an explicit contract, enforced in code:
+Duet gives human-agent collaboration an explicit contract, enforced in code.
 
-- **Pins are law.** Any guest the human places by hand is pinned 📌. The solver plans
-  around pins, and agent tools that try to move a pinned guest are refused with an
-  explanation the agent can relay ("pinned by the human — ask them").
-- **Proposals, not surprises.** The agent's preferred tool, `propose_arrangement`,
-  changes nothing: it renders a banner with the agent's reasoning and the full move
-  list. Only the human can Accept or Dismiss. (`auto_arrange` exists for "just do it".)
-- **Tools follow the human's focus.** Selecting a table registers table-scoped tools
-  via `AbortSignal` (`seat_at_selected_table`, `clear_selected_table`, …); deselecting
-  removes them. The agent always knows what the human is looking at.
-- **Everything is visible and reversible.** Agent actions animate as a violet cursor on
-  the board, land in an activity feed labeled `✳ agent` vs `● you`, and undo works on
-  both sides' actions.
+**Pins are law.** Any guest placed manually is pinned. The solver plans around those decisions, and agent tools are refused if they attempt to move or remove a pinned guest.
 
-## What people and agents can do together that was difficult or impossible before
+**Agents propose; humans decide.** The preferred agent tool, `propose_arrangement`, does not mutate the room. It displays the reasoning and complete move list first. Only the human can Accept or Dismiss it.
 
-Load the 120-guest fundraising gala. The human pins the board chair and drags one donor
-next to a friend. The agent imports the rest of the list, records "press away from the
-board", applies "max 2 per company per table", and proposes a full arrangement — 120
-moves, every constraint honored, pins untouched — which the human reviews and accepts
-in one click. Then: "give me the caterer's brief" → `export_plan` returns per-table
-dietary counts. That loop — human judgment steering a solver through conversation,
-live on a shared visual surface — did not exist before WebMCP. The same engine ships
-five scenarios: wedding, gala, corporate networking dinner, office seating, classroom.
+**The tool surface follows human attention.** Selecting a table dynamically exposes table-scoped tools such as `seat_at_selected_table` and `clear_selected_table`. Deselecting it removes them.
+
+**Everything is visible and reversible.** Agent actions appear as a violet cursor on the board, every action enters a shared activity feed, and undo/redo works across both human and agent actions.
+
+## What becomes possible — together — that wasn't before
+
+Load a 120-guest fundraising gala. The human manually places two important guests, pinning them. The agent records "press away from the board", applies "maximum two people from the same company per table", and proposes a complete arrangement for the remaining 118 guests. The solver honors every constraint without touching the human's pins; the human reviews and accepts in one click.
+
+Create a conflict deliberately and Duet pans to the affected table, identifies who conflicts and why, and lets the agent call `explain_seating` to justify individual placements. Then ask "give me the caterer's brief" and `export_plan` returns dietary counts by table.
+
+That loop — human judgment steering an agent and a constraint solver through conversation, directly on a shared visual surface — is what WebMCP makes possible. Five scenarios ship on the same engine: wedding, gala, corporate dinner, office seating, classroom.
 
 ## How we implemented WebMCP
 
-- 21 base tools registered with `document.modelContext.registerTool` (full guest and
-  table CRUD, pair constraints with notes, group rules, solver, proposals, pins,
-  dietary reports, markdown export, template loading, undo, `explain_seating` — the solver justifies any
-  placement on request — and `get_activity_log`, so a returning agent can catch up on
-  what the human did in the meantime).
-- 4 dynamic, selection-scoped tools registered/unregistered with `AbortController` as
-  selection changes — the tool list itself mirrors the human's focus.
-- Tool results return structured JSON (including "what conflicts would this create"),
-  so the agent can reason about consequences before acting.
-- Guardrails live at the tool layer: pinned guests are refused, `propose_arrangement`
-  is described as preferred so agents default to human review.
-- Dependency-free constraint solver (greedy + local search + targeted repair with
-  3-way relocations) runs in ~75 ms for 120 guests, honoring pins, pair constraints,
-  group spread/cluster rules, accessibility, and table balance.
-- React + Vite + TypeScript; no backend — the entire app state lives in the tab,
-  which is exactly the point of WebMCP.
-
----
+21 base tools via `document.modelContext.registerTool` (guest/table CRUD, pair constraints with notes, group spread/cluster rules, solver, proposals, pins, dietary reports, Markdown export, template loading, undo, `explain_seating`, `get_activity_log`) plus 4 dynamic selection-scoped tools registered/removed with `AbortController` — the tool surface mirrors the human's focus. Tool results return structured JSON including the conflicts an action would create; guardrails are enforced at the tool layer. The dependency-free solver (greedy + local search + targeted repair + three-way relocation) solves a 120-guest room in ~75 ms. React + Vite + TypeScript, no backend — the entire collaborative state lives in the tab, exactly where WebMCP operates.
 
 ## Testing instructions (for the submission form)
 
