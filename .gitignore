@@ -25,3 +25,9 @@ dist-ssr
 .vercel
 video/raw/
 video/*.mp4
+video/clips-raw/
+video/beats/
+video/nar/
+video/vo2/
+video/vo/
+video/cards/

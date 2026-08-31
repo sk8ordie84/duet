@@ -1,0 +1,26 @@
+{
+  "01-gala-load": {
+    "start": 7.56,
+    "end": 13.8
+  },
+  "02-human-pins": {
+    "start": 4.17,
+    "end": 13.59
+  },
+  "03-agent-solver": {
+    "start": 4.89,
+    "end": 22.7
+  },
+  "04-conflict-explain": {
+    "start": 5.57,
+    "end": 16.06
+  },
+  "05-dynamic-tools": {
+    "start": 4.97,
+    "end": 16.15
+  },
+  "06-caterer": {
+    "start": 4.32,
+    "end": 11.72
+  }
+}
